@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>GeekForce Job Tracker</title>
+<link rel="stylesheet" href="popup.css">
+</head>
+<body>
+<header>
+  <div><img src="logo.svg" alt="4Geeks" class="logo"><div class="product">GEEKFORCE TRACKER</div></div>
+  <span id="who" class="cap"></span>
+</header>
+
+<section id="login" hidden>
+  <h1>Sign in to track applications</h1>
+  <p class="cap">Use your GeekForce Career Hub account. Signing in on the Career Hub website also connects the extension.</p>
+  <form id="loginForm">
+    <label for="email">Email</label><input id="email" type="email" required autocomplete="email">
+    <label for="password">Password</label><input id="password" type="password" required autocomplete="current-password">
+    <div id="loginErr" class="err" hidden></div>
+    <button class="btn bp" type="submit">Sign in</button>
+  </form>
+</section>
+
+<section id="main" hidden>
+  <div class="tiles">
+    <div class="tile"><div class="cap">Today</div><div class="num" id="todayN">0</div></div>
+    <div class="tile" id="ptsTile"><div class="cap">Points</div><div class="num" id="pts">—</div></div>
+  </div>
+  <div>
+    <div class="row"><strong>This week</strong><strong id="weekTxt">—</strong></div>
+    <div class="bar"><span id="weekBar"></span></div>
+    <div class="cap" id="weekNote"></div>
+  </div>
+  <div id="queue" class="info" hidden></div>
+  <div>
+    <div class="eyebrow">Tracked today</div>
+    <div id="todayList"></div>
+  </div>
+  <div id="trackMsg" class="info" hidden></div>
+  <div class="actions">
+    <button class="btn bg" id="trackPage">Track this job</button>
+    <button class="btn bp" id="openHub">Open Career Hub</button>
+  </div>
+  <div class="cap center">Works on LinkedIn, Indeed, Glassdoor, Greenhouse and Lever</div>
+</section>
+
+<details id="settings">
+  <summary class="cap">Settings</summary>
+  <label for="hubUrl">Career Hub address</label><input id="hubUrl" type="url">
+  <div class="actions"><button class="btn bg" id="saveUrl">Save</button><button class="btn bg" id="logout">Sign out</button></div>
+</details>
+<script type="module" src="popup.js"></script>
+</body>
+</html>

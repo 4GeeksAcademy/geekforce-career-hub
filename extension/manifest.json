@@ -1,0 +1,40 @@
+{
+  "manifest_version": 3,
+  "name": "GeekForce Job Tracker",
+  "short_name": "GeekForce",
+  "version": "1.0.0",
+  "description": "Logs your job applications to the 4Geeks GeekForce Career Hub automatically (+3 career points each).",
+  "icons": { "16": "icons/icon16.png", "48": "icons/icon48.png", "128": "icons/icon128.png" },
+  "action": { "default_popup": "popup.html", "default_title": "GeekForce Job Tracker" },
+  "background": { "service_worker": "background.js", "type": "module" },
+  "permissions": ["storage", "alarms", "activeTab", "scripting"],
+  "host_permissions": [
+    "https://*.linkedin.com/*",
+    "https://*.indeed.com/*",
+    "https://*.glassdoor.com/*",
+    "https://boards.greenhouse.io/*",
+    "https://job-boards.greenhouse.io/*",
+    "https://jobs.lever.co/*",
+    "https://*.up.railway.app/*"
+  ],
+  "content_scripts": [
+    {
+      "matches": [
+        "https://*.linkedin.com/*",
+        "https://*.indeed.com/*",
+        "https://*.glassdoor.com/*",
+        "https://boards.greenhouse.io/*",
+        "https://job-boards.greenhouse.io/*",
+        "https://jobs.lever.co/*"
+      ],
+      "js": ["sites.js", "content.js"],
+      "css": ["overlay.css"],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": ["https://*.up.railway.app/*", "http://localhost/*"],
+      "js": ["hub-bridge.js"],
+      "run_at": "document_start"
+    }
+  ]
+}

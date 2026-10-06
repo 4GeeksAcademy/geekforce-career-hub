@@ -1,0 +1,7 @@
+#gf-overlay{position:fixed;left:24px;bottom:24px;z-index:2147483647;width:400px;max-width:calc(100vw - 48px);background:#0E1B2C;color:#fff;border-radius:16px;padding:16px 18px;display:flex;gap:14px;align-items:center;font:14px/1.4 Inter,Arial,sans-serif;box-shadow:0 8px 30px rgba(0,0,0,.25)}
+#gf-overlay .gf-ico{width:40px;height:40px;border-radius:12px;background:#1B6FE0;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:20px;flex:none}
+#gf-overlay .gf-ico.gf-warn{background:#F5B93E;color:#0E1B2C}
+#gf-overlay .gf-txt{flex:1;display:flex;flex-direction:column}
+#gf-overlay strong{font-weight:800;font-size:15px}
+#gf-overlay span{color:#CFE2FF;font-size:13px}
+#gf-overlay .gf-x{background:none;border:none;color:#CFE2FF;font-size:22px;cursor:pointer;width:32px;height:32px}

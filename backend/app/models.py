@@ -1,0 +1,249 @@
+"""Database models.
+
+Kept portable (String UUIDs, generic JSON) so the schema can be lifted into the 4Geeks platform later.
+`User.external_id` holds the Breathcode user id once phase 2 (4Geeks login) is enabled.
+"""
+import uuid
+from datetime import date, datetime
+
+from sqlalchemy import (
+    JSON, Boolean, Date, DateTime, ForeignKey, Integer, String, Text, UniqueConstraint, func,
+)
+from sqlalchemy.orm import Mapped, mapped_column, relationship
+
+from .db import Base
+
+
+def _uuid() -> str:
+    return str(uuid.uuid4())
+
+
+class TimestampMixin:
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class User(TimestampMixin, Base):
+    __tablename__ = "users"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    email: Mapped[str] = mapped_column(String(255), unique=True, index=True)
+    name: Mapped[str] = mapped_column(String(255))
+    password_hash: Mapped[str | None] = mapped_column(String(255))
+    role: Mapped[str] = mapped_column(String(20), default="student")  # student | advisor | admin
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    external_provider: Mapped[str | None] = mapped_column(String(40))  # "breathcode" in phase 2
+    external_id: Mapped[str | None] = mapped_column(String(64), index=True)
+    last_login_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+    student: Mapped["Student | None"] = relationship(
+        back_populates="user", foreign_keys="Student.user_id", uselist=False
+    )
+
+
+class Cohort(TimestampMixin, Base):
+    __tablename__ = "cohorts"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    name: Mapped[str] = mapped_column(String(255))
+    program: Mapped[str | None] = mapped_column(String(120))
+    location: Mapped[str | None] = mapped_column(String(120))
+    region: Mapped[str] = mapped_column(String(20), default="usa")  # usa | latam | spain
+    deadline_days: Mapped[int | None] = mapped_column(Integer)  # job search deadline for this program
+    external_id: Mapped[str | None] = mapped_column(String(64))
+
+
+class Student(TimestampMixin, Base):
+    __tablename__ = "students"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.id"), unique=True)
+    cohort_id: Mapped[str | None] = mapped_column(ForeignKey("cohorts.id"))
+    advisor_id: Mapped[str | None] = mapped_column(ForeignKey("users.id"))
+    country: Mapped[str | None] = mapped_column(String(80))
+
+    career_points: Mapped[int] = mapped_column(Integer, default=80)
+    # secured | at_risk | suspended | not_eligible
+    guarantee_status: Mapped[str] = mapped_column(String(20), default="secured")
+    status: Mapped[str] = mapped_column(String(20), default="active")  # active | hired | withdrawn
+
+    consecutive_homework_misses: Mapped[int] = mapped_column(Integer, default=0)
+    missed_meetings: Mapped[int] = mapped_column(Integer, default=0)
+
+    job_search_start_date: Mapped[date | None] = mapped_column(Date)
+    deadline_days: Mapped[int | None] = mapped_column(Integer)  # overrides cohort / default
+    deadline_extension_days: Mapped[int] = mapped_column(Integer, default=0)
+
+    paused_from: Mapped[date | None] = mapped_column(Date)
+    paused_until: Mapped[date | None] = mapped_column(Date)
+    pauses_used: Mapped[int] = mapped_column(Integer, default=0)
+
+    last_activity_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+    user: Mapped[User] = relationship(back_populates="student", foreign_keys=[user_id])
+    advisor: Mapped[User | None] = relationship(foreign_keys=[advisor_id])
+    cohort: Mapped[Cohort | None] = relationship()
+
+
+class RuleSetting(Base):
+    """Admin-editable point values and thresholds (defaults live in rules.py)."""
+    __tablename__ = "rule_settings"
+    key: Mapped[str] = mapped_column(String(80), primary_key=True)
+    value: Mapped[float] = mapped_column(JSON)
+    updated_by: Mapped[str | None] = mapped_column(ForeignKey("users.id"))
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+
+class PointsEvent(TimestampMixin, Base):
+    __tablename__ = "points_events"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    student_id: Mapped[str] = mapped_column(ForeignKey("students.id"), index=True)
+    event_type: Mapped[str] = mapped_column(String(40))
+    delta: Mapped[int] = mapped_column(Integer)  # the rule's value
+    applied_delta: Mapped[int] = mapped_column(Integer)  # after floor/ceiling clamping
+    balance_after: Mapped[int] = mapped_column(Integer)
+    title: Mapped[str] = mapped_column(String(255))
+    source: Mapped[str] = mapped_column(String(40), default="system")  # extension|manual|advisor|weekly_check|automatic
+    source_id: Mapped[str | None] = mapped_column(String(36))
+    note: Mapped[str | None] = mapped_column(Text)
+    created_by: Mapped[str | None] = mapped_column(ForeignKey("users.id"))
+    idempotency_key: Mapped[str | None] = mapped_column(String(160), unique=True)
+
+
+class Application(TimestampMixin, Base):
+    __tablename__ = "applications"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    student_id: Mapped[str] = mapped_column(ForeignKey("students.id"), index=True)
+    company: Mapped[str] = mapped_column(String(255))
+    role: Mapped[str] = mapped_column(String(255))
+    job_url: Mapped[str | None] = mapped_column(Text)
+    # applied | phone_screen | technical | final | offer | rejected | withdrawn
+    status: Mapped[str] = mapped_column(String(20), default="applied")
+    # extension_linkedin | extension_indeed | extension_glassdoor | extension_greenhouse | manual
+    source: Mapped[str] = mapped_column(String(30), default="manual")
+    notes: Mapped[str | None] = mapped_column(Text)
+    followup_date: Mapped[date | None] = mapped_column(Date)
+    applied_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+
+class ActivityLog(TimestampMixin, Base):
+    """Recruiter outreach, LinkedIn posts and networking actions logged by the student."""
+    __tablename__ = "activity_logs"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    student_id: Mapped[str] = mapped_column(ForeignKey("students.id"), index=True)
+    kind: Mapped[str] = mapped_column(String(20))  # outreach | linkedin_post | networking
+    contact_name: Mapped[str | None] = mapped_column(String(255))
+    company: Mapped[str | None] = mapped_column(String(255))
+    platform: Mapped[str | None] = mapped_column(String(60))
+    url: Mapped[str | None] = mapped_column(Text)
+    post_type: Mapped[str | None] = mapped_column(String(20))  # original | commentary
+    notes: Mapped[str | None] = mapped_column(Text)
+    occurred_on: Mapped[date] = mapped_column(Date)
+    points_awarded: Mapped[int] = mapped_column(Integer, default=0)
+    verified_by: Mapped[str | None] = mapped_column(ForeignKey("users.id"))
+
+
+class ProfileTask(Base):
+    __tablename__ = "profile_tasks"
+    __table_args__ = (UniqueConstraint("student_id", "task"),)
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    student_id: Mapped[str] = mapped_column(ForeignKey("students.id"))
+    task: Mapped[str] = mapped_column(String(20))  # cv | github | headshot | linkedin
+    completed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class Session(TimestampMixin, Base):
+    __tablename__ = "sessions"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    student_id: Mapped[str] = mapped_column(ForeignKey("students.id"), index=True)
+    advisor_id: Mapped[str | None] = mapped_column(ForeignKey("users.id"))
+    session_date: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    session_type: Mapped[str] = mapped_column(String(20))  # one_on_one | group_workshop | mock_interview
+    attendance: Mapped[str] = mapped_column(String(20))  # attended | excused | absent | scheduled
+    title: Mapped[str | None] = mapped_column(String(255))
+    summary: Mapped[str | None] = mapped_column(Text)
+    resources: Mapped[list] = mapped_column(JSON, default=list)
+    advisor: Mapped[User | None] = relationship()
+    homework: Mapped[list["HomeworkTask"]] = relationship(back_populates="session", order_by="HomeworkTask.created_at")
+
+
+class HomeworkTask(TimestampMixin, Base):
+    __tablename__ = "homework_tasks"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    session_id: Mapped[str] = mapped_column(ForeignKey("sessions.id"))
+    student_id: Mapped[str] = mapped_column(ForeignKey("students.id"), index=True)
+    description: Mapped[str] = mapped_column(Text)
+    due_date: Mapped[date | None] = mapped_column(Date)
+    point_value: Mapped[int] = mapped_column(Integer, default=15)
+    status: Mapped[str] = mapped_column(String(20), default="pending")  # pending | completed | missed
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    verified_by_advisor: Mapped[bool] = mapped_column(Boolean, default=False)
+    reminder_sent: Mapped[bool] = mapped_column(Boolean, default=False)
+    session: Mapped[Session] = relationship(back_populates="homework")
+
+
+class Notification(TimestampMixin, Base):
+    __tablename__ = "notifications"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.id"), index=True)
+    type: Mapped[str] = mapped_column(String(20))  # warning | critical | success | info | reminder | deduction
+    category: Mapped[str] = mapped_column(String(40))  # guarantee | deduction | advisor | reminder | session | pause
+    title: Mapped[str] = mapped_column(String(255))
+    body: Mapped[str] = mapped_column(Text)
+    link: Mapped[str | None] = mapped_column(String(255))
+    read: Mapped[bool] = mapped_column(Boolean, default=False)
+    email_sent: Mapped[bool] = mapped_column(Boolean, default=False)
+
+
+class NotificationPreference(Base):
+    __tablename__ = "notification_preferences"
+    __table_args__ = (UniqueConstraint("user_id", "key"),)
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.id"))
+    key: Mapped[str] = mapped_column(String(40))
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+
+
+class PauseRequest(TimestampMixin, Base):
+    __tablename__ = "pause_requests"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    student_id: Mapped[str] = mapped_column(ForeignKey("students.id"), index=True)
+    start_date: Mapped[date] = mapped_column(Date)
+    end_date: Mapped[date] = mapped_column(Date)
+    reason_type: Mapped[str] = mapped_column(String(30))  # medical | family | travel | other
+    reason: Mapped[str | None] = mapped_column(Text)
+    status: Mapped[str] = mapped_column(String(20), default="pending")  # pending | approved | declined | ended
+    extension_days: Mapped[int] = mapped_column(Integer, default=0)
+    decided_by: Mapped[str | None] = mapped_column(ForeignKey("users.id"))
+    decided_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    decision_note: Mapped[str | None] = mapped_column(Text)
+    reminder_sent: Mapped[bool] = mapped_column(Boolean, default=False)
+
+
+class OfferReport(TimestampMixin, Base):
+    __tablename__ = "offer_reports"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    student_id: Mapped[str] = mapped_column(ForeignKey("students.id"))
+    application_id: Mapped[str | None] = mapped_column(ForeignKey("applications.id"))
+    company: Mapped[str] = mapped_column(String(255))
+    justification: Mapped[str | None] = mapped_column(Text)
+    justification_approved: Mapped[bool] = mapped_column(Boolean, default=False)
+    reported_by: Mapped[str] = mapped_column(ForeignKey("users.id"))
+
+
+class ResumeVersion(TimestampMixin, Base):
+    __tablename__ = "resume_versions"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    student_id: Mapped[str] = mapped_column(ForeignKey("students.id"), index=True)
+    title: Mapped[str] = mapped_column(String(255))
+    resume_text: Mapped[str] = mapped_column(Text)
+    job_description: Mapped[str] = mapped_column(Text)
+    analysis: Mapped[dict] = mapped_column(JSON)
+    downloaded: Mapped[bool] = mapped_column(Boolean, default=False)
+
+
+class AuditLog(TimestampMixin, Base):
+    __tablename__ = "audit_logs"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    actor_id: Mapped[str | None] = mapped_column(ForeignKey("users.id"))
+    student_id: Mapped[str | None] = mapped_column(ForeignKey("students.id"))
+    action: Mapped[str] = mapped_column(String(60))
+    detail: Mapped[str] = mapped_column(Text)
+    data: Mapped[dict | None] = mapped_column(JSON)

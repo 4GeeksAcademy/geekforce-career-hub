@@ -1,0 +1,33 @@
+*{box-sizing:border-box}
+[hidden]{display:none!important}
+body{margin:0;width:372px;font:14px/1.45 Inter,Arial,sans-serif;color:#0B0B0F;background:#fff}
+header{display:flex;align-items:center;justify-content:space-between;padding:16px 18px;border-bottom:1px solid #EEF1F5}
+.logo{width:104px;display:block}
+.product{font-size:10px;font-weight:800;letter-spacing:.14em;color:#5C6470;margin-top:4px}
+section,details{padding:16px 18px;display:flex;flex-direction:column;gap:14px}
+h1{font-size:17px;margin:0}
+.cap{font-size:12px;color:#5C6470}
+.center{text-align:center}
+.eyebrow{font-size:11px;font-weight:700;letter-spacing:.08em;color:#5C6470;margin-bottom:4px}
+.tiles{display:flex;gap:12px}
+.tile{flex:1;background:#F5F7FA;border-radius:12px;padding:12px 14px}
+.tile.risk{background:#FDF3D7}.tile.risk .num{color:#7A4E00}
+.tile.bad{background:#FDECEC}.tile.bad .num{color:#B4232A}
+.num{font-size:26px;font-weight:800;font-variant-numeric:tabular-nums}
+.row{display:flex;justify-content:space-between;font-size:13px;margin-bottom:6px}
+.bar{height:8px;border-radius:999px;background:#E6E9EF;overflow:hidden}
+.bar span{display:block;height:100%;background:#F5B93E;width:0}
+.info{background:#EFF6FF;color:#0F3F85;border-radius:12px;padding:10px 12px;font-size:13px}
+.err{background:#FDECEC;color:#7F1D1D;border-radius:10px;padding:10px 12px;font-size:13px}
+.item{display:flex;justify-content:space-between;padding:9px 0;border-bottom:1px solid #EEF1F5;font-size:13px}
+.item:last-child{border-bottom:none}
+.item b{color:#1B6FE0}
+.actions{display:flex;gap:8px}
+.btn{flex:1;min-height:44px;border-radius:999px;font:inherit;font-weight:700;font-size:14px;cursor:pointer;border:1px solid transparent}
+.bp{background:#1B6FE0;color:#fff}.bp:hover{background:#0F55B8}
+.bg{background:#fff;color:#1B6FE0;border-color:#CFE2FF}.bg:hover{background:#EFF6FF}
+label{font-size:13px;font-weight:600;color:#3F4752}
+input{width:100%;min-height:42px;border:1px solid #D5DAE3;border-radius:10px;padding:8px 10px;font:inherit}
+form{display:flex;flex-direction:column;gap:8px}
+details{border-top:1px solid #EEF1F5}
+summary{cursor:pointer}
