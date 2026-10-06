@@ -14,7 +14,7 @@ from sqlalchemy.orm import Session as DB
 
 from .db import SessionLocal
 from .engine import (
-    applications_in_week, award, is_paused, refresh_status,
+    applications_in_week, award, compute_status, is_paused, quota_applies, refresh_status, weekly_target,
 )
 from .models import ActivityLog, Application, HomeworkTask, PauseRequest, PointsEvent, Session, Student, User
 from .notify import alert_advisor, notify_student
@@ -39,9 +39,13 @@ def weekly_check(db: DB, today: date | None = None) -> dict:
         if st.job_search_start_date and st.job_search_start_date > last_monday + timedelta(days=6):
             out["skipped"] += 1
             continue
+        if not quota_applies(st):
+            out["skipped"] += 1
+            continue
+        target = weekly_target(st, r)
         n = applications_in_week(db, st.id, last_monday)
         key = f"weekly:{st.id}:{last_monday.isoformat()}"
-        if n >= r.weekly_application_target:
+        if n >= target:
             if award(db, st, "weekly_bonus", r.pts_weekly_bonus, f"Weekly goal met · {n} applications",
                      source="weekly_check", key=key, r=r):
                 out["bonus"] += 1
@@ -49,13 +53,13 @@ def weekly_check(db: DB, today: date | None = None) -> dict:
             out["skipped"] += 1
         else:
             ev = award(db, st, "deduction_weekly", r.ded_weekly_target_missed,
-                       f"Weekly goal missed · {n} of {r.weekly_application_target} applications",
+                       f"Weekly goal missed · {n} of {target} applications",
                        source="weekly_check", key=key, r=r)
             if ev:
                 out["deducted"] += 1
                 notify_student(db, st, type="deduction", category="deduction",
-                               title=f"{r.ded_weekly_target_missed}: last week ended at {n} of {r.weekly_application_target}",
-                               body=f"This week's target is {r.weekly_application_target}. Hit it for a +{r.pts_weekly_bonus} bonus.",
+                               title=f"{r.ded_weekly_target_missed}: last week ended at {n} of {target}",
+                               body=f"This week's target is {target}. Hit it for a +{r.pts_weekly_bonus} bonus.",
                                link="/tracker")
     db.commit()
     return out
@@ -67,14 +71,15 @@ def friday_nudge(db: DB, today: date | None = None) -> dict:
     monday = today - timedelta(days=today.weekday())
     sent = 0
     for st in _active_students(db):
-        if is_paused(st, today):
+        if is_paused(st, today) or not quota_applies(st):
             continue
+        target = weekly_target(st, r)
         n = applications_in_week(db, st.id, monday)
-        if n < r.weekly_application_target:
-            left = r.weekly_application_target - n
+        if n < target:
+            left = target - n
             if notify_student(db, st, type="warning", category="reminder", pref_key="weekly_nudge", email=False,
                               title=f"{left} applications to go this week",
-                              body=f"You're at {n} of {r.weekly_application_target}. Your week closes Sunday at 11:59 PM.",
+                              body=f"You're at {n} of {target}. Your week closes Sunday at 11:59 PM.",
                               link="/tracker"):
                 sent += 1
     db.commit()
@@ -91,7 +96,7 @@ def _window_check(db: DB, st: Student, today: date, kind: str, event_type: str, 
     """−delta if no `kind` activity in `days` days. Clock starts at the latest of: job search start,
     last activity of that kind, last penalty of this type, or end of the last pause."""
     last_act = db.scalar(select(func.max(ActivityLog.occurred_on)).where(
-        ActivityLog.student_id == st.id, ActivityLog.kind == kind))
+        ActivityLog.student_id == st.id, ActivityLog.kind == kind, ActivityLog.status == "active"))
     anchors = [d for d in (st.job_search_start_date, last_act, _last_event_date(db, st, event_type),
                            st.paused_until) if d]
     if not anchors:
@@ -110,7 +115,8 @@ def _window_check(db: DB, st: Student, today: date, kind: str, event_type: str, 
 
 
 def _last_activity(db: DB, st: Student) -> date | None:
-    stamps = [aware(st.last_activity_at), aware(st.user.last_login_at)]
+    # Real actions only: logging in does not stop the inactivity clock (decision Oct 2026).
+    stamps = [aware(st.last_activity_at)]
     stamps.append(aware(db.scalar(select(func.max(Application.applied_at)).where(Application.student_id == st.id))))
     stamps.append(aware(db.scalar(select(func.max(Session.session_date)).where(
         Session.student_id == st.id, Session.attendance.in_(["attended", "excused", "scheduled"]),
@@ -148,6 +154,38 @@ def _inactivity(db: DB, st: Student, today: date):
                 alert_advisor(db, st, f"{st.user.name}: inactive {idle} days", f"Deduction of {delta} applied.")
 
 
+def _not_started_ladder(db: DB, st: Student, today: date, r):
+    """No first 1:1 yet: day 7 follow-up, day 15 on hold, day 30 guarantee lost (permanent)."""
+    had_first = db.scalar(select(func.count(Session.id)).where(
+        Session.student_id == st.id, Session.session_type == "one_on_one", Session.attendance == "attended"))
+    if had_first:
+        return
+    if not st.activated_at:  # the ladder counts from activation in Career Hub
+        return
+    anchor = aware(st.activated_at).astimezone(tz()).date()
+    day = (today - anchor).days
+    name = st.user.name
+    if day >= r.not_started_loss_day and st.not_started_level < 30:
+        st.not_started_level = 30
+        if st.guarantee_status not in ("not_eligible", "suspended"):
+            st.guarantee_status, st.suspended_at = "suspended", now_utc()
+            notify_student(db, st, type="critical", category="guarantee", title="Your Job Guarantee has been suspended",
+                           body=f"{day} days without your first 1:1 with GeekForce. Under the policy the guarantee is lost. "
+                                "You still have career support: book your first session now.", link="/advisor")
+            alert_advisor(db, st, f"{name}: guarantee lost (Not Started day {day})", "No first 1:1 in 30 days.")
+    elif day >= r.not_started_hold_day and st.not_started_level < 15:
+        st.not_started_level, st.on_hold = 15, True
+        notify_student(db, st, type="critical", category="inactivity", title="Your GeekForce process is on hold",
+                       body=f"{day} days without your first 1:1. Book it now: on day {r.not_started_loss_day} the Job "
+                            "Guarantee is lost.", link="/advisor")
+        alert_advisor(db, st, f"{name}: on hold (Not Started day {day})", "No first 1:1 yet. Reach out today.")
+    elif day >= r.not_started_followup_day and st.not_started_level < 7:
+        st.not_started_level = 7
+        notify_student(db, st, type="warning", category="reminder", title="Book your first GeekForce 1:1",
+                       body=f"It's been {day} days. On day {r.not_started_hold_day} your process goes on hold.", link="/advisor")
+        alert_advisor(db, st, f"{name}: no first 1:1 after {day} days", "Follow up by Slack and email.")
+
+
 def daily(db: DB, today: date | None = None) -> dict:
     today = today or local_today()
     r = get_rules(db)
@@ -161,6 +199,7 @@ def daily(db: DB, today: date | None = None) -> dict:
                            body="All checks are running again. Your deadline already includes the extension.", link="/")
             refresh_status(db, st, r)
     for st in _active_students(db):
+        _not_started_ladder(db, st, today, r)
         _window_check(db, st, today, "linkedin_post", "deduction_linkedin", r.linkedin_inactive_days,
                       r.ded_linkedin_inactive, "LinkedIn activity")
         _window_check(db, st, today, "outreach", "deduction_outreach", r.outreach_inactive_days,
@@ -195,7 +234,13 @@ def reminders(db: DB, today: date | None = None) -> dict:
     return {"homework_reminders": n}
 
 
-JOBS = {"weekly_check": weekly_check, "friday_nudge": friday_nudge, "daily": daily, "reminders": reminders}
+def notion_sync(db: DB, today: date | None = None) -> dict:
+    from .notion_sync import run_sync
+    return run_sync(db)
+
+
+JOBS = {"weekly_check": weekly_check, "friday_nudge": friday_nudge, "daily": daily, "reminders": reminders,
+        "notion_sync": notion_sync}
 
 
 def run_job(name: str) -> dict:
@@ -213,5 +258,8 @@ def start_scheduler():
     sched.add_job(run_job, CronTrigger(day_of_week="fri", hour=17, minute=0), args=["friday_nudge"], id="friday_nudge")
     sched.add_job(run_job, CronTrigger(hour=1, minute=0), args=["daily"], id="daily")
     sched.add_job(run_job, CronTrigger(hour=9, minute=0), args=["reminders"], id="reminders")
+    from .config import settings
+    if settings.notion_token:
+        sched.add_job(run_job, CronTrigger(hour=0, minute=30), args=["notion_sync"], id="notion_sync")
     sched.start()
     return sched

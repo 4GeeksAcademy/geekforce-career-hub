@@ -34,9 +34,7 @@ def login(body: LoginIn, db: Session = Depends(get_db)):
     u = db.scalar(select(User).where(func.lower(User.email) == body.email.lower()))
     if not u or not u.is_active or not verify_password(body.password, u.password_hash):
         raise HTTPException(401, "Wrong email or password")
-    u.last_login_at = now_utc()
-    if u.student:
-        u.student.last_activity_at = now_utc()
+    u.last_login_at = now_utc()  # recorded, but logging in alone doesn't count as job-search activity
     db.commit()
     return {"token": create_token(u), "user": me_dict(u)}
 

@@ -35,8 +35,21 @@ STATUS_LABEL = {"secured": "Secured", "at_risk": "At risk", "suspended": "Suspen
 # ───────────────────────── status ─────────────────────────
 
 def is_paused(st: Student, today: date | None = None) -> bool:
+    """Approved pause, or on hold by the Not Started ladder: automatic deductions are frozen."""
+    if st.on_hold:
+        return True
     today = today or local_today()
     return bool(st.paused_from and st.paused_until and st.paused_from <= today <= st.paused_until)
+
+
+def weekly_target(st: Student, r: Rules) -> int:
+    """Job Guarantee: 15/week. Professional Support (no guarantee): 10/week."""
+    return r.weekly_target_prof_support if st.enrollment_plan == "professional_support" else r.weekly_application_target
+
+
+def quota_applies(st: Student) -> bool:
+    """The weekly quota starts at Stage 3 (job hunting). Unknown stage (manual students) → applies."""
+    return st.stage in (None, "job_hunting")
 
 
 def compute_status(points: int, r: Rules) -> str:
@@ -48,8 +61,10 @@ def compute_status(points: int, r: Rules) -> str:
 
 
 def refresh_status(db: DB, st: Student, r: Rules | None = None) -> str:
+    """Recompute the guarantee status. Suspension is permanent (Policy decision, Oct 2026):
+    once suspended, only an admin can reinstate (see reinstate_guarantee)."""
     r = r or get_rules(db)
-    if st.status != "active" or st.guarantee_status == "not_eligible" or is_paused(st):
+    if st.status != "active" or st.guarantee_status in ("not_eligible", "suspended") or is_paused(st):
         return st.guarantee_status  # frozen
     new, old = compute_status(st.career_points, r), st.guarantee_status
     if new == old:
@@ -60,26 +75,46 @@ def refresh_status(db: DB, st: Student, r: Rules | None = None) -> str:
         notify_student(db, st, type="warning", category="guarantee",
                        title="Your Job Guarantee is at risk",
                        body=f"You're at {st.career_points} points, {gap} below {r.secured_threshold}. "
-                            f"Stay above {r.suspended_below} to avoid suspension.",
+                            f"If you drop below {r.suspended_below}, your guarantee is suspended permanently.",
                        link="/points")
     elif new == "suspended":
+        st.suspended_at = now_utc()
         notify_student(db, st, type="critical", category="guarantee",
-                       title="Your Job Guarantee is suspended",
-                       body=f"Your balance dropped to {st.career_points}, below {r.suspended_below}. "
-                            f"Get back to {r.secured_threshold} to restore it. Your advisor has been notified.",
+                       title="Your Job Guarantee has been suspended",
+                       body=f"Your balance dropped to {st.career_points}, below {r.suspended_below}. Under the GeekForce "
+                            "policy this suspension is permanent. You keep full career support, sessions and points. "
+                            "If you believe this is a mistake, talk to your advisor.",
                        link="/points")
         alert_advisor(db, st, f"{st.user.name}: guarantee suspended",
-                      f"{st.user.name} dropped to {st.career_points} points.")
+                      f"{st.user.name} dropped to {st.career_points} points. The suspension is permanent unless an admin "
+                      "reinstates it.")
     elif new == "secured":
         notify_student(db, st, type="success", category="guarantee",
                        title="Your Job Guarantee is secured again",
                        body=f"You're back at {st.career_points} points. Keep it up.", link="/points")
-    elif new == "at_risk" and old == "suspended":
-        notify_student(db, st, type="warning", category="guarantee",
-                       title="Out of suspension, still at risk",
-                       body=f"You're at {st.career_points}. {gap} more points secures your guarantee.",
-                       link="/points")
     return new
+
+
+def reinstate_guarantee(db: DB, st: Student, admin: User, reason: str, set_points: int | None = None):
+    """Admin-only override of a permanent suspension (mistakes, approved appeals). Always audited."""
+    r = get_rules(db)
+    if st.guarantee_status != "suspended":
+        raise HTTPException(400, "This student's guarantee isn't suspended")
+    if not reason or len(reason.strip()) < 10:
+        raise HTTPException(422, "Explain why the guarantee is being reinstated (at least a sentence)")
+    target = set_points if set_points is not None else st.career_points
+    if target < r.suspended_below:
+        raise HTTPException(422, f"The balance must be at least {r.suspended_below} to reinstate. Set a new balance.")
+    if target != st.career_points:
+        award(db, st, "manual_adjustment", target - st.career_points, "Balance corrected on reinstatement",
+              source="admin", note=reason.strip(), created_by=admin.id)
+    st.guarantee_status = compute_status(st.career_points, r)
+    st.suspended_at = None
+    db.add(AuditLog(actor_id=admin.id, student_id=st.id, action="guarantee_reinstated",
+                    detail=f"Reinstated at {st.career_points} points · {reason.strip()}"))
+    notify_student(db, st, type="success", category="guarantee", title="Your Job Guarantee has been reinstated",
+                   body=f"An admin reviewed your case and reinstated your guarantee at {st.career_points} points.",
+                   link="/points")
 
 
 def award(db: DB, st: Student, event_type: str, delta: int, title: str, *, source: str = "system",
@@ -120,7 +155,7 @@ def applications_in_week(db: DB, student_id: str, monday: date) -> int:
 
 def activities_in_week(db: DB, student_id: str, kind: str, monday: date, awarded_only=False) -> int:
     q = select(func.count(ActivityLog.id)).where(
-        ActivityLog.student_id == student_id, ActivityLog.kind == kind,
+        ActivityLog.student_id == student_id, ActivityLog.kind == kind, ActivityLog.status == "active",
         ActivityLog.occurred_on >= monday, ActivityLog.occurred_on < monday + timedelta(days=7))
     if awarded_only:
         q = q.where(ActivityLog.points_awarded > 0)
@@ -133,10 +168,16 @@ def deadline_info(db: DB, st: Student, r: Rules | None = None) -> dict:
     total = base + (st.deadline_extension_days or 0)
     start = st.job_search_start_date
     today = local_today()
+    if st.deadline_date:
+        deadline = st.deadline_date + timedelta(days=st.deadline_extension_days or 0)
+        if start:
+            total = (deadline - start).days
+    else:
+        deadline = start + timedelta(days=total) if start else None
     return {
         "base_days": base, "extension_days": st.deadline_extension_days or 0, "total_days": total,
         "day": (today - start).days + 1 if start else None,
-        "deadline": (start + timedelta(days=total)).isoformat() if start else None,
+        "deadline": deadline.isoformat() if deadline else None,
     }
 
 
@@ -336,6 +377,8 @@ def log_session(db: DB, st: Student, advisor: User, *, session_type: str, attend
                             due_date=hw.get("due_date"), point_value=hw.get("point_value") or r.pts_homework))
     if attendance in ("attended", "excused"):
         touch(st)
+    if attendance == "attended" and session_type == "one_on_one" and (st.on_hold or st.not_started_level):
+        st.on_hold, st.not_started_level = False, 0  # first 1:1 done: leaves the Not Started ladder
 
     # Notifications
     if attendance == "absent" and st.missed_meetings >= r.max_missed_meetings:
@@ -439,3 +482,57 @@ def decide_pause(db: DB, pr: PauseRequest, actor: User, approve: bool, note: str
                        body=note or "Talk to your advisor for details.", link="/points")
     db.add(AuditLog(actor_id=actor.id, student_id=st.id, action="pause_" + pr.status,
                     detail=f"{days} days · {pr.reason_type} · deadline +{pr.extension_days if approve else 0} days"))
+
+
+# ───────────────────────── verification & onboarding ─────────────────────────
+
+def reject_activity(db: DB, act: ActivityLog, advisor: User, reason: str):
+    """Advisor couldn't verify a self-reported entry: remove its points and tell the student."""
+    if act.status == "rejected":
+        raise HTTPException(400, "Already rejected")
+    if not reason or len(reason.strip()) < 5:
+        raise HTTPException(422, "Tell the student why the entry was rejected")
+    st = db.get(Student, act.student_id)
+    act.status, act.rejected_reason, act.verified_by = "rejected", reason.strip(), advisor.id
+    label = {"linkedin_post": "LinkedIn post", "outreach": "Recruiter outreach", "networking": "Networking action"}[act.kind]
+    if act.points_awarded:
+        ev = db.scalar(select(PointsEvent).where(PointsEvent.source_id == act.id, PointsEvent.event_type == act.kind))
+        award(db, st, "activity_rejected", -(ev.applied_delta if ev else act.points_awarded),
+              f"{label} rejected by advisor", source="advisor", source_id=act.id, note=reason.strip(),
+              created_by=advisor.id, key=f"reject:{act.id}")
+        act.points_awarded = 0
+    notify_student(db, st, type="deduction", category="deduction", title=f"Your {label.lower()} entry was rejected",
+                   body=f"{advisor.name}: {reason.strip()}", link="/tracker")
+    db.add(AuditLog(actor_id=advisor.id, student_id=st.id, action="activity_rejected", detail=f"{label} · {reason.strip()}"))
+
+
+def suggested_starting_balance(db: DB, st: Student) -> dict:
+    r = get_rules(db)
+    recent = db.scalar(select(func.count(Application.id)).where(
+        Application.student_id == st.id, Application.applied_at >= now_utc() - timedelta(days=30))) or 0
+    total = db.scalar(select(func.count(Application.id)).where(Application.student_id == st.id)) or 0
+    value = min(r.points_ceiling, r.starting_points + recent * r.pts_application)
+    return {"suggested": value, "applications_last_30_days": recent, "applications_total": total,
+            "formula": f"{r.starting_points} + {r.pts_application} × {recent} applications in the last 30 days, max {r.points_ceiling}"}
+
+
+def activate_student(db: DB, st: Student, advisor: User, starting_points: int, note: str | None = None):
+    r = get_rules(db)
+    if st.status != "onboarding":
+        raise HTTPException(400, "This student is already active")
+    if not (r.points_floor <= starting_points <= r.points_ceiling):
+        raise HTTPException(422, f"The starting balance must be between {r.points_floor} and {r.points_ceiling}")
+    st.status, st.activated_at = "active", now_utc()
+    st.career_points = starting_points
+    db.add(PointsEvent(student_id=st.id, event_type="starting_balance", delta=starting_points,
+                       applied_delta=starting_points, balance_after=starting_points,
+                       title="Starting balance set by advisor", source="advisor", note=note, created_by=advisor.id))
+    if st.guarantee_status != "not_eligible":
+        st.guarantee_status = compute_status(starting_points, r)
+        if st.guarantee_status == "suspended":
+            st.suspended_at = now_utc()
+    if not st.job_search_start_date:
+        st.job_search_start_date = local_today()
+    touch(st)
+    db.add(AuditLog(actor_id=advisor.id, student_id=st.id, action="student_activated",
+                    detail=f"Starting balance {starting_points}" + (f" · {note}" if note else "")))

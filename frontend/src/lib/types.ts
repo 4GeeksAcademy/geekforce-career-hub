@@ -5,7 +5,8 @@ export interface StudentBrief {
   id: string; name: string; email: string; initials: string; cohort: string | null; program: string | null;
   location: string | null; region: string | null; advisor: string | null; advisor_id: string | null;
   points: number; guarantee_status: GStatus; status: "active" | "hired" | "withdrawn"; paused: boolean;
-  paused_until: string | null;
+  paused_until: string | null; on_hold: boolean; stage: string | null;
+  enrollment_plan: "job_guarantee" | "professional_support" | null; suspended_at: string | null; from_notion: boolean;
 }
 export interface Me { id: string; email: string; name: string; initials: string; role: Role; student: StudentBrief | null }
 
@@ -33,7 +34,7 @@ export interface Dashboard {
   student: StudentBrief; points: number; status: GStatus;
   thresholds: { secured: number; suspended_below: number; ceiling: number; floor: number };
   gap_to_secure: number;
-  week: { applications: number; target: number; closes_at: string; linkedin_posts: number; linkedin_cap: number;
+  week: { applications: number; target: number; quota_applies: boolean; closes_at: string; linkedin_posts: number; linkedin_cap: number;
     outreach: number; outreach_cap: number; pts_application: number; weekly_bonus: number; weekly_penalty: number };
   missed_meetings: number; max_missed_meetings: number; homework_streak: number;
   pending_homework: Homework[]; next_session: SessionRec | null; actions: Action[]; conditions: Condition[];
@@ -50,7 +51,11 @@ export interface AppItem {
 export interface Activity {
   id: string; kind: "outreach" | "linkedin_post" | "networking"; contact_name: string | null; company: string | null;
   platform: string | null; url: string | null; post_type: string | null; notes: string | null; occurred_on: string;
-  points_awarded: number;
+  points_awarded: number; status: "active" | "rejected"; rejected_reason: string | null;
+}
+export interface Interaction {
+  id: string; occurred_at: string; channel: string; summary: string; visibility: "private" | "shared";
+  advisor: string | null; follow_up_date?: string | null; follow_up_done?: boolean;
 }
 export interface Notif { id: string; type: string; category: string; title: string; body: string; link: string | null;
   read: boolean; email_sent: boolean; created_at: string }
@@ -60,6 +65,7 @@ export interface Analysis {
   suggested_bullets: { before: string; after: string }[];
 }
 export interface StaffRow extends StudentBrief {
+  display_stage: string | null; target: number;
   apps_this_week: number; missed_meetings: number; homework_streak: number; last_active: string | null;
   idle_days: number | null; next_session: string | null;
 }

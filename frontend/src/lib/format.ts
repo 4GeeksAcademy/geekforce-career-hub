@@ -34,11 +34,20 @@ export const appStatus: Record<string, [string, string]> = {
   final: ["Final round", "pa"], offer: ["Offer", "pn"], rejected: ["Rejected", "pr"], withdrawn: ["Withdrawn", "pg"],
 };
 export const sourceLabel = (s: string) =>
-  s === "manual" ? "Manual" : "Extension · " + s.replace("extension_", "").replace(/^./, (c) => c.toUpperCase());
+  s === "manual" ? "Manual" : s === "notion_import" ? "Imported from Notion" : "Extension · " + s.replace("extension_", "").replace(/^./, (c) => c.toUpperCase());
 export const sessionType: Record<string, string> = {
   one_on_one: "1:1 session", group_workshop: "GeekForce session", mock_interview: "Mock interview",
 };
 export const todayISO = () => {
   const t = new Date();
   return `${t.getFullYear()}-${String(t.getMonth() + 1).padStart(2, "0")}-${String(t.getDate()).padStart(2, "0")}`;
+};
+
+export const stageLabel: Record<string, string> = {
+  not_started: "Not started", profile: "Stage 1 · Profile", interview_prep: "Stage 2 · Interview prep",
+  job_hunting: "Stage 3 · Job hunting", interviewing: "Interviewing", placed: "Placed",
+};
+export const planLabel = (p: string | null) => (p === "professional_support" ? "Professional Support" : p === "job_guarantee" ? "Job Guarantee" : "—");
+export const channelLabel: Record<string, string> = {
+  call: "Call", slack: "Slack", whatsapp: "WhatsApp", email: "Email", meeting: "Check-in", other: "Other",
 };

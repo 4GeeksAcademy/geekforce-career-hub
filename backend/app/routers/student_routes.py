@@ -87,7 +87,7 @@ def list_applications(student_id: str, status: str | None = None, q: str | None 
     total = sum(counts.values())
     return {"items": [application_dict(a) for a in apps], "counts": counts, "total": total,
             "this_week": engine.applications_in_week(db, st.id, week_start()),
-            "target": get_rules(db).weekly_application_target}
+            "target": engine.weekly_target(st, get_rules(db))}
 
 
 @router.post("/applications", status_code=201)
@@ -100,7 +100,7 @@ def create_application(body: ApplicationIn, user: User = Depends(current_user), 
     db.commit()
     return {"application": application_dict(app), "created": created, "points": st.career_points,
             "this_week": engine.applications_in_week(db, st.id, week_start()),
-            "target": get_rules(db).weekly_application_target}
+            "target": engine.weekly_target(st, get_rules(db))}
 
 
 @router.patch("/applications/{app_id}")
@@ -360,3 +360,21 @@ def download_resume(vid: str, user: User = Depends(current_user), db: Session = 
     safe = "".join(c for c in v.title if c.isalnum() or c in " -_").strip().replace(" ", "_") or "resume"
     return Response(data, media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
                     headers={"Content-Disposition": f'attachment; filename="{safe}.docx"'})
+
+
+
+@router.get("/students/{student_id}/interactions")
+def list_interactions(student_id: str, user: User = Depends(current_user), db: Session = Depends(get_db)):
+    """Staff see every note; students see only notes their advisor shared."""
+    from ..models import Interaction
+    from ..serializers import interaction_dict
+    st = student_for(db, user, student_id)
+    q = select(Interaction).where(Interaction.student_id == st.id)
+    if user.role == "student":
+        q = q.where(Interaction.visibility == "shared")
+    rows = db.scalars(q.order_by(Interaction.occurred_at.desc())).all()
+    out = [interaction_dict(i) for i in rows]
+    if user.role == "student":
+        for o in out:
+            o.pop("follow_up_date"), o.pop("follow_up_done")
+    return out

@@ -19,13 +19,18 @@ export default function Dashboard() {
   const greet = hour < 12 ? "Good morning" : hour < 18 ? "Good afternoon" : "Good evening";
   const w = d.week;
   const appsLeft = Math.max(0, w.target - w.applications);
-  const banner = d.pause.active
+  const plan = d.student.enrollment_plan;
+  const banner = d.student.on_hold
+    ? { bg: "var(--red-soft)", fg: "#7F1D1D", title: "Your GeekForce process is on hold.", body: "You haven't had your first 1:1 yet. Book it now: on day 30 without it, the Job Guarantee is lost." }
+    : d.pause.active
     ? { bg: "#F0F2F5", fg: "var(--ink)", title: `You're on an approved pause until ${fmtDate(d.pause.until)}.`, body: "Automatic deductions are frozen and your guarantee status is on hold." }
+    : d.status === "not_eligible"
+      ? { bg: "var(--blue-tint)", fg: "#0F3F85", title: `${plan === "professional_support" ? "Professional Support" : "Career support"}: keep your momentum.`, body: `Your plan doesn't include the Job Guarantee, but points track your progress. Weekly target: ${w.target} applications.` }
     : d.status === "secured"
       ? { bg: "var(--blue-tint)", fg: "#0F3F85", title: "Your Job Guarantee is secured.", body: `Keep your weekly rhythm: ${w.target} applications, one original LinkedIn post, and your homework before each meeting.` }
       : d.status === "at_risk"
-        ? { bg: "var(--amber-soft)", fg: "var(--ink)", title: `Your Job Guarantee is at risk. You're ${d.gap_to_secure} points from securing it.`, body: `Stay above ${d.thresholds.suspended_below} to avoid suspension.` }
-        : { bg: "var(--red-soft)", fg: "#7F1D1D", title: `Your Job Guarantee is suspended. ${d.gap_to_secure} points to restore it.`, body: "Every action below counts. Your advisor can help you plan the way back." };
+        ? { bg: "var(--amber-soft)", fg: "var(--ink)", title: `Your Job Guarantee is at risk. You're ${d.gap_to_secure} points from securing it.`, body: `Below ${d.thresholds.suspended_below} the guarantee is suspended permanently.` }
+        : { bg: "var(--red-soft)", fg: "#7F1D1D", title: "Your Job Guarantee has been suspended.", body: "You keep full career support, sessions and points. Keep going: your advisor is still here to help you land the job." };
 
   return (
     <>
@@ -54,8 +59,8 @@ export default function Dashboard() {
             <Legend />
           </section>
           <div className="grid" style={{ flex: "2 1 520px" }}>
-            <Stat label="Applications this week" value={w.applications} of={`of ${w.target}`} max={w.target} warn={appsLeft > 0}
-              note={appsLeft ? `${appsLeft} more by Sunday: +${appsLeft * w.pts_application} pts, a +${w.weekly_bonus} bonus, and no ${signed(w.weekly_penalty)} on Monday.` : `Weekly goal met. +${w.weekly_bonus} bonus lands Monday.`} />
+            <Stat label="Applications this week" value={w.applications} of={`of ${w.target}`} max={w.target} warn={w.quota_applies && appsLeft > 0}
+              note={!w.quota_applies ? "Your weekly target starts when you reach Stage 3 · Job hunting." : appsLeft ? `${appsLeft} more by Sunday: +${appsLeft * w.pts_application} pts, a +${w.weekly_bonus} bonus, and no ${signed(w.weekly_penalty)} on Monday.` : `Weekly goal met. +${w.weekly_bonus} bonus lands Monday.`} />
             <Stat label="LinkedIn posts this week" value={w.linkedin_posts} of={`of 1 original required`} max={1} warn={w.linkedin_posts === 0}
               note={`Up to ${w.linkedin_cap} posts a week earn +${d.rules.pts_linkedin_post ?? 5} each.`} />
             <Stat label="Recruiter outreach this week" value={w.outreach} of={`of ${w.outreach_cap} that earn points`} max={w.outreach_cap}
@@ -72,7 +77,7 @@ export default function Dashboard() {
 
         <div className="row">
           <section className="card stack" style={{ flex: "3 1 460px" }}>
-            <div className="between"><h2 className="h2">{d.gap_to_secure ? `Your fastest way back to ${d.thresholds.secured}` : "Keep your guarantee secured"}</h2><span className="cap">Ranked by impact</span></div>
+            <div className="between"><h2 className="h2">{d.status === "at_risk" ? `Your fastest way back to ${d.thresholds.secured}` : d.status === "secured" ? "Keep your guarantee secured" : "Your next best moves"}</h2><span className="cap">Ranked by impact</span></div>
             {d.actions.length === 0 && <div className="empty">You're all caught up this week.</div>}
             {d.actions.map((a, i) => (
               <Link key={a.title} className="act" to={a.link}><span className="rank">{i + 1}</span>

@@ -2,7 +2,8 @@ import { NavLink, Outlet } from "react-router-dom";
 import { useAuth } from "../lib/auth";
 import { statusNum } from "../lib/format";
 import { Bar } from "./ui";
-import { IBell, IBriefcase, IChat, IFile, IGrid, IList, IPause, IShield, ISliders, IUsers } from "./Icons";
+import { AccountButton } from "./Account";
+import { IBell, IBriefcase, IChat, IFile, IGrid, IList, IPause, IPlus, IShield, ISliders, IUsers } from "./Icons";
 
 const nl = ({ isActive }: { isActive: boolean }) => "nl" + (isActive ? " active" : "");
 
@@ -34,10 +35,12 @@ export function StudentLayout() {
                 <span className="cap">/ 100</span></div>
               <Bar value={st.points} max={100} color={st.guarantee_status === "secured" ? "var(--blue)" : st.guarantee_status === "at_risk" ? "var(--amber)" : "var(--red)"} />
               <div style={{ fontSize: 13, fontWeight: 600, color: statusNum(st.guarantee_status) }}>
-                {st.paused ? "On pause · checks frozen" : gap ? `${st.guarantee_status === "suspended" ? "Suspended" : "At risk"} · ${gap} pts to secure` : "Guarantee secured"}
+                {st.on_hold ? "On hold · book your first 1:1" : st.paused ? "On pause · checks frozen"
+                  : st.guarantee_status === "suspended" ? "Guarantee suspended" : st.guarantee_status === "not_eligible" ? "Professional Support"
+                  : gap ? `At risk · ${gap} pts to secure` : "Guarantee secured"}
               </div>
             </div>)}
-          <button className="signout" onClick={logout}>Sign out</button>
+          <AccountButton /><button className="signout" onClick={logout}>Sign out</button>
         </div>
       </aside>
       <main className="main"><Outlet /></main>
@@ -56,6 +59,7 @@ export function StaffLayout() {
             <div style={{ fontSize: 13, color: "#A9B6CA" }}>{isAdmin ? "Admin" : "Advisor"}</div></div></div>
         <nav className="nav" aria-label="Advisor">
           <NavLink className={nl} to="/staff" end><IUsers />My students</NavLink>
+          <NavLink className={nl} to="/staff/onboarding"><IPlus />Onboarding</NavLink>
           <NavLink className={nl} to="/staff/notifications"><IBell />Alerts</NavLink>
           <div className="ng">MANAGE</div>
           <NavLink className={nl} to="/admin" end><IPause />Pause requests</NavLink>
@@ -63,7 +67,7 @@ export function StaffLayout() {
           {isAdmin && <NavLink className={nl} to="/admin/people"><IUsers />People &amp; cohorts</NavLink>}
           {isAdmin && <NavLink className={nl} to="/admin/audit"><IList />Audit log</NavLink>}
         </nav>
-        <div className="side-foot"><button className="signout" onClick={logout}>Sign out</button></div>
+        <div className="side-foot"><AccountButton /><button className="signout" onClick={logout}>Sign out</button></div>
       </aside>
       <main className="main"><Outlet /></main>
     </div>);

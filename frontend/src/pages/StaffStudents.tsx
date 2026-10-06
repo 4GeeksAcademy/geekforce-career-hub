@@ -2,12 +2,13 @@ import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { useApi } from "../lib/useApi";
 import type { StaffRow } from "../lib/types";
-import { fmtDate, statusColor } from "../lib/format";
+import { fmtDate, stageLabel, statusColor } from "../lib/format";
 import { ErrorBox, Spinner, StatusPill } from "../components/ui";
 
 type List = { summary: Record<string, number>; items: StaffRow[]; target: number; max_missed: number; cohorts: { id: string; name: string }[] };
 type Att = { kind: string; student_id: string; pause_id?: string; text: string };
-const ATT: Record<string, [string, string]> = { suspended: ["Suspended", "pr"], meetings: ["Meetings", "pr"], inactive: ["Inactive", "pa"], offer: ["Offer", "pa"], pause: ["Pause", "pg"] };
+const ATT: Record<string, [string, string]> = { suspended: ["Suspended", "pr"], on_hold: ["On hold", "pr"], meetings: ["Meetings", "pr"],
+  follow_up: ["Follow-up", "pb"], inactive: ["Inactive", "pa"], offer: ["Offer", "pa"], pause: ["Pause", "pg"], onboarding: ["Onboarding", "pg"] };
 
 export default function StaffStudents() {
   const [cohort, setCohort] = useState("");
@@ -37,7 +38,7 @@ export default function StaffStudents() {
               <div key={i} style={{ display: "flex", gap: 14, alignItems: "center", padding: "14px 0", borderBottom: "1px solid var(--line-soft)", flexWrap: "wrap" }}>
                 <span className={`pill ${ATT[a.kind][1]}`}>{ATT[a.kind][0]}</span>
                 <div style={{ flex: "1 1 300px" }}>{a.text}</div>
-                <Link className="btn bg sm" to={a.kind === "pause" ? "/admin" : `/staff/students/${a.student_id}`}>{a.kind === "pause" ? "Review request" : "Open student"}</Link>
+                <Link className="btn bg sm" to={a.kind === "pause" ? "/admin" : a.kind === "onboarding" ? "/staff/onboarding" : `/staff/students/${a.student_id}`}>{a.kind === "pause" ? "Review request" : a.kind === "onboarding" ? "Open onboarding" : "Open student"}</Link>
               </div>))}
           </section>)}
 
@@ -53,7 +54,7 @@ export default function StaffStudents() {
           {list.loading ? <Spinner /> : <ErrorBox error={list.error} />}
           {list.data && (list.data.items.length === 0 ? <div className="empty">No students yet. Admins add them under People &amp; cohorts.</div> :
             <div className="tw"><table>
-              <thead><tr><th>Student</th><th>Points</th><th>Status</th><th>Apps this week</th><th>Missed mtgs</th><th>Homework</th><th>Last active</th><th>Next session</th></tr></thead>
+              <thead><tr><th>Student</th><th>Points</th><th>Status</th><th>Stage</th><th>Apps this week</th><th>Missed mtgs</th><th>Homework</th><th>Last active</th><th>Next session</th></tr></thead>
               <tbody>{list.data.items.map((r) => (
                 <tr key={r.id} className="click" onClick={() => nav(`/staff/students/${r.id}`)}>
                   <td><Link to={`/staff/students/${r.id}`} style={{ display: "flex", alignItems: "center", gap: 12, color: "var(--ink)", fontWeight: 700 }} onClick={(e) => e.stopPropagation()}>
@@ -61,8 +62,9 @@ export default function StaffStudents() {
                     <span>{r.name}<span className="cap" style={{ display: "block", fontWeight: 500 }}>{r.cohort}</span></span></Link></td>
                   <td style={{ whiteSpace: "nowrap" }}><span className="num">{r.points}</span>
                     <span style={{ width: 72, height: 6, borderRadius: 3, background: "var(--line)", display: "inline-block", verticalAlign: "middle", marginLeft: 10, overflow: "hidden" }}><span style={{ display: "block", height: "100%", width: `${r.points}%`, background: statusColor(r.guarantee_status) }} /></span></td>
-                  <td>{r.status === "hired" ? <span className="pill pn">Hired</span> : <StatusPill status={r.guarantee_status} paused={r.paused} />}</td>
-                  <td className="num" style={{ color: r.apps_this_week < list.data!.target ? "var(--amber-ink)" : undefined }}>{r.apps_this_week} / {list.data!.target}</td>
+                  <td>{r.status === "hired" ? <span className="pill pn">Hired</span> : r.on_hold ? <span className="pill pr">On hold</span> : <StatusPill status={r.guarantee_status} paused={r.paused} />}</td>
+                  <td className="cap" style={{ whiteSpace: "nowrap" }}>{r.display_stage ? stageLabel[r.display_stage] : "—"}</td>
+                  <td className="num" style={{ color: r.apps_this_week < r.target ? "var(--amber-ink)" : undefined }}>{r.apps_this_week} / {r.target}</td>
                   <td>{r.missed_meetings} / {list.data!.max_missed}</td>
                   <td>{r.homework_streak ? `${r.homework_streak} miss${r.homework_streak > 1 ? "es" : ""} in a row` : "—"}</td>
                   <td className="cap" style={{ whiteSpace: "nowrap" }}>{r.idle_days == null ? "—" : r.idle_days === 0 ? "Today" : `${r.idle_days} day${r.idle_days === 1 ? "" : "s"} ago`}</td>

@@ -30,6 +30,10 @@ class Settings(BaseSettings):
     breathcode_enabled: bool = False
     breathcode_api_url: str = "https://breathecode.herokuapp.com"
 
+    # Notion (roster sync, read-only)
+    notion_token: str = ""
+    notion_students_source_id: str = "f6fd23c5-65be-4d01-814c-981ae43174ea"  # Miami Student Tracker | Part-Time
+
     # Misc
     seed_demo: bool = False  # create demo users/data on startup if the database is empty
     static_dir: str = ""  # folder with the built frontend; served at /

@@ -18,7 +18,9 @@ The API serves the built web app, so production is **one Railway service plus on
 
 **Students:** dashboard with points gauge and guarantee status; a ranked "fastest way back to 80" list; Job Tracker (applications, recruiter outreach, LinkedIn posts, networking); AI Resume Builder with a .docx download and saved versions; Points & Guarantee page with a full ledger and the 7 guarantee conditions; pause requests; Advisor Hub with notes and homework; notifications and email preferences.
 
-**Advisors:** student list sorted by risk; a "needs your attention" feed; a student detail page; session logging with a **live preview of every point consequence before saving**; scheduling; manual adjustments (reason required); offer-rejection reports; project receipts; marking a student hired.
+**Notion roster sync:** active GeekForce students sync from the Miami Student Tracker every night, along with their stage, plan, cohort, advisor and JG deadline. Their Notion Job Application Tracker comes in as history. Advisors then activate each student with a starting balance, and the login goes out by email.
+
+**Advisors:** onboarding queue; student list sorted by risk, with stages; an interaction log (calls, Slack, WhatsApp, email) with follow-up reminders and private or shared notes; review and rejection of self-reported entries; a "needs your attention" feed; a student detail page; session logging with a **live preview of every point consequence before saving**; scheduling; manual adjustments (reason required); offer-rejection reports; project receipts; marking a student hired.
 
 **Admins:** pause approvals with deadline math; every point value and threshold editable; people and cohorts; audit log; integration status; manual run of scheduled checks.
 
@@ -30,6 +32,11 @@ The API serves the built web app, so production is **one Railway service plus on
 | `friday_nudge` | Fri 17:00 | In-app warning if under target |
 | `daily` | 01:00 | Ends pauses; 14-day LinkedIn and outreach checks (−10); inactivity: day-25 warning, then day 31 −20 and −10 each week after; refreshes status |
 | `reminders` | 09:00 | Homework due in 48h; pause ending in 3 days |
+| `notion_sync` | 00:30 | Roster and stages from Notion (only when `NOTION_TOKEN` is set) |
+
+`daily` also runs the **Not Started ladder** (no first 1:1 after activation): day 7 follow-up, day 15 on hold, day 30 guarantee lost.
+
+**Suspension is permanent.** Below 60 the guarantee is gone and only an admin can reinstate it. Full rules: [docs/DECISIONS.md](docs/DECISIONS.md).
 
 Session-time rules apply when an advisor saves a session: +20 for a 1:1, +10 for a workshop or mock interview; −10 for an absence without notice (counts toward the 3-miss limit); −15 for each unfinished homework task; −10 extra on a second miss in a row. During an approved pause, automatic deductions are frozen and the guarantee status is frozen.
 
@@ -53,7 +60,7 @@ cd frontend && npm install && npm run dev   # http://localhost:5173
 Demo accounts (only with `SEED_DEMO=true`), password `geekforce-demo`:
 `maria@geekforce.demo` (student, at risk) · `valentina@geekforce.demo` (advisor) · `admin@geekforce.demo` (admin).
 
-Tests: `cd backend && python -m pytest -q` (24 tests; every Policy rule has one). They need a Postgres database; set it with `TEST_DATABASE_URL`.
+Tests: `cd backend && python -m pytest -q` (36 tests, at least one per Policy rule, plus the Notion sync against a simulated API). They need a Postgres database; set it with `TEST_DATABASE_URL`.
 
 API docs: `http://localhost:8000/api/docs`.
 
@@ -61,7 +68,8 @@ API docs: `http://localhost:8000/api/docs`.
 
 1. New project → **Deploy from GitHub repo** → `4GeeksAcademy/geekforce-career-hub`. Railway uses the `Dockerfile` and `railway.json`.
 2. Add a **PostgreSQL** service, then on the app service set `DATABASE_URL=${{Postgres.DATABASE_URL}}`.
-3. Set the variables from `.env.example`. At minimum: `JWT_SECRET`, `APP_URL`, `ENABLE_SCHEDULER=true`, `INITIAL_ADMIN_EMAIL`, `INITIAL_ADMIN_PASSWORD`. Add `BREVO_API_KEY` and `ANTHROPIC_API_KEY` when ready.
+3. Set the variables from `.env.example`. At minimum: `JWT_SECRET`, `APP_URL`, `ENABLE_SCHEDULER=true`, `INITIAL_ADMIN_EMAIL`, `INITIAL_ADMIN_PASSWORD`. Add `BREVO_API_KEY`, `ANTHROPIC_API_KEY` and `NOTION_TOKEN` when ready.
+   - Advisor accounts must use the **same names as the Notion "Advisor" options** (e.g. "Valentina Ancieta", "Fabiana Pereira") so synced students get assigned automatically.
 4. Generate a domain. Migrations run on every deploy (`backend/start.sh`).
 
 Keep `numReplicas` at 1 while `ENABLE_SCHEDULER=true`. When scaling out, turn the scheduler off and call `POST /api/v1/cron/{job}` with header `X-Cron-Secret` from an n8n or Railway cron instead.

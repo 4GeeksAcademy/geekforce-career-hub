@@ -14,6 +14,7 @@ import AdvisorHub from "./pages/AdvisorHub";
 import Notifications from "./pages/Notifications";
 import StaffStudents from "./pages/StaffStudents";
 import StaffStudent from "./pages/StaffStudent";
+import Onboarding from "./pages/Onboarding";
 import { AdminAudit, AdminPauses, AdminPeople, AdminRules } from "./pages/Admin";
 
 function Guard({ staff, children }: { staff?: boolean; children: React.ReactNode }) {
@@ -42,6 +43,7 @@ function App() {
         <Route path="/staff" element={<StaffStudents />} />
         <Route path="/staff/students/:id" element={<StaffStudent />} />
         <Route path="/staff/notifications" element={<Notifications staff />} />
+        <Route path="/staff/onboarding" element={<Onboarding />} />
         <Route path="/admin" element={<AdminPauses />} />
         <Route path="/admin/rules" element={<AdminRules />} />
         <Route path="/admin/people" element={<AdminPeople />} />

@@ -194,3 +194,19 @@ def cron_run_job(name: str, x_cron_secret: str = Header("")):
     if name not in JOBS:
         raise HTTPException(404, "Unknown job")
     return run_job(name)
+
+
+class ReinstateIn(BaseModel):
+    reason: str
+    set_points: int | None = None
+
+
+@router.post("/students/{student_id}/reinstate")
+def reinstate(student_id: str, body: ReinstateIn, user: User = Depends(require_admin), db: Session = Depends(get_db)):
+    from .. import engine
+    st = db.get(Student, student_id)
+    if not st:
+        raise HTTPException(404, "Student not found")
+    engine.reinstate_guarantee(db, st, user, body.reason, body.set_points)
+    db.commit()
+    return student_brief(st)

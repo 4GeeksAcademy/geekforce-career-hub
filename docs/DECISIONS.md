@@ -1,21 +1,47 @@
 # Product decisions (v1)
 
-Agreed with Marcelo on Oct 4, 2026. Items marked *assumption* still need Valentina's confirmation. All of them are admin settings or small changes, not rebuilds.
+Settled with Marcelo on Oct 4–6, 2026. Every value marked ⚙ is an admin setting (Admin → Rules & points), so changing it doesn't need code.
+
+## Points & guarantee
 
 | Topic | Decision |
 |---|---|
-| Source of rules | Career Points Policy v1.0 wins over the Product Spec where they differ (15 applications/week, +3 each, start at 80) |
-| Stack | React + FastAPI + Postgres on Railway (same as Commission Tracker and Instructor Payroll) |
-| Login | Own accounts for v1; 4Geeks/Breathcode login in phase 2 (`docs/INTEGRATION.md`) |
-| Attendance | Advisors log it in Career Hub until Breathcode sync exists |
-| Scope | All modules plus the Chrome extension in the first release |
-| Points model | One running balance (start 80, floor 0, ceiling 100), no monthly reset |
-| Resume downloads | 0 points (Policy dropped the Spec's +5). Admins can set "Tailored resume downloaded" to 5. *assumption* |
-| Restoring a suspended guarantee | Automatic when the balance is back to 80 or more. *assumption* |
-| LATAM | Same 15/week cadence. *assumption* |
-| Job search deadline | Per cohort (`deadline_days`), default 180, overridable per student. *assumption* |
-| Advisor visibility | Advisors see their own students; admins see everyone. *assumption* |
-| Resume versions | Stored server-side, so students keep a history per job |
-| Status colors | Blue = secured, amber = at risk, red = suspended (4Geeks brand excludes green; also colorblind-safe) |
-| Hired | Advisors can mark a student hired, which stops point tracking |
-| Time zone | All weeks and checks use `TIMEZONE` (default America/New_York). Per-region time zones would be a v1.1 item |
+| Source of rules | Career Points Policy v1.0 wins over the Product Spec where they differ |
+| Balance | One running balance, floor 0, ceiling 100 ⚙, never resets |
+| Starting balance | Set by the advisor at activation. Pre-filled with 80 + 3 × applications in the last 30 days, capped at 100 |
+| Thresholds | Secured 80+ ⚙ · At risk 60–79 · Suspended below 60 ⚙ |
+| **Suspension** | **Permanent.** Falling below 60, or reaching day 30 of the Not Started ladder, suspends the guarantee for good. The student keeps career support, sessions and points |
+| Reinstatement | Admins only, with a written reason, and the balance must be 60 or more. Audited |
+| Hard rules | Only points suspend the guarantee. 3 missed meetings and rejected offers cost points and trigger an advisor review |
+| Weekly target | 15 for Job Guarantee ⚙, 10 for Professional Support ⚙. No proration; first partial week skipped. Starts at Stage 3 · Job hunting |
+| Homework on time | Done before the next 1:1 (the due date is a reminder) |
+| LinkedIn | −10 only after 14 days with no activity ⚙; the weekly original post is encouraged, not penalized |
+| Inactivity | Real actions only: applications, logged activity, homework, sessions. Logging in doesn't count |
+| Self-reported entries | Advisors can reject a LinkedIn post, outreach or networking entry: points removed, student notified, logged |
+| Valid offer | The advisor decides case by case; the −30 needs the student's written reason on file |
+| Resume downloads | No points ⚙ |
+| Not Started ladder | No first 1:1 after activation: day 7 follow-up (student + advisor), day 15 on hold (automatic deductions frozen), day 30 guarantee lost ⚙ |
+
+## Students & data
+
+| Topic | Decision |
+|---|---|
+| Roster | **Notion stays the source of truth.** Nightly sync (12:30 AM) plus a "Sync from Notion" button. Advisors can also add a student manually |
+| Who syncs | Miami Student Tracker rows with GeekForce Status = Active. Only "Job Guarantee" plans get a guarantee; "Regular Student" and "Special Scholarship" become Professional Support; "No-CareerSupport" is skipped |
+| Stages | Synced from "GeekForce Stages completion" (the most advanced one wins). Placement Status = Placed means placed/hired. "Interviewing" is derived from the application pipeline |
+| Application history | Each student's Notion Job Application Tracker is imported once, during onboarding. Imported applications earn no points; the advisor's starting balance replaces them |
+| Activation | Advisor reviews the history, sets the balance, and the student gets a login by email |
+| Interaction log | Every touchpoint (call, Slack, WhatsApp, email, check-in) with follow-up reminders. Private notes are staff-only; shared notes appear in the student's Advisor Hub |
+| Stack | React + FastAPI + Postgres on Railway; 4Geeks/Breathcode login in phase 2 |
+| Status colors | Blue = secured, amber = at risk, red = suspended (brand excludes green; colorblind-safe) |
+
+## Phase 2 (v1.1), from Victor's GeekForce Hub prototype
+
+Built on the same app and data:
+
+- **Job Radar:** daily 10:00 AM sweep of job sources using per-program title sets. It reuses Lali's Adzuna feed and adds the team's filters (US only, Easy Apply, entry level, under 24h old, under 50 applicants).
+- **Graduate–job matching:** match score by program, skills and work mode. "Who fits" per job, with drafts for all who fit.
+- **Talent Pipeline:** profiles of students past Stages 1–2, plus 3–5-person shortlists per partner job (in the style of Ironhack's Fast-track Interviews).
+- **Draft automations a coach approves:** daily job digest as Slack DM drafts (max 2 links), and an interview kit when an application moves to Interviewing.
+- **GeekForce Weekly:** Monday research brief with sources.
+- **Integrations:** Slack drafts, Calendly (completed sessions update the stage), Notion write-back.

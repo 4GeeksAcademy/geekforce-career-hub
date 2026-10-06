@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session as DB
 
 from .auth import hash_password
 from .models import (
-    ActivityLog, Application, Cohort, HomeworkTask, Notification, PointsEvent, Session, Student, User,
+    ActivityLog, Application, Cohort, HomeworkTask, Interaction, Notification, PointsEvent, Session, Student, User,
 )
 from .timeutil import UTC, local_today, tz
 
@@ -52,8 +52,12 @@ def seed_demo(db: DB):
         u = User(email=email, name=name, role="student", password_hash=pw)
         db.add(u)
         db.flush()
+        plan = kw.pop("plan", "job_guarantee")
         st = Student(user_id=u.id, cohort_id=cohort.id, advisor_id=val.id, career_points=points,
-                     guarantee_status=status, job_search_start_date=local_today() - timedelta(days=started_days_ago),
+                     guarantee_status=status if plan == "job_guarantee" else "not_eligible",
+                     enrollment_plan=plan, stage=kw.pop("stage", "job_hunting"),
+                     activated_at=_at(started_days_ago, 9),
+                     job_search_start_date=local_today() - timedelta(days=started_days_ago),
                      last_activity_at=_at(kw.pop("idle", 0), 9), **kw)
         db.add(st)
         db.flush()
@@ -121,15 +125,35 @@ def seed_demo(db: DB):
 
     others = [("Carlos Ruiz", fs, 55, "suspended", 70, dict(missed_meetings=3, consecutive_homework_misses=2, idle=2)),
               ("Ana Torres", ai, 61, "at_risk", 60, dict(idle=25)),
-              ("Diego López", ai, 77, "at_risk", 40, {}),
+              ("Diego López", ai, 77, "at_risk", 40, dict(stage="interview_prep")),
               ("Jorge Medina", fs, 79, "at_risk", 50, dict(missed_meetings=1, idle=1)),
               ("Sofía Ramírez", fs, 84, "secured", 35, {}),
-              ("Luis Pereira", ai, 88, "secured", 30, {}),
+              ("Luis Pereira", ai, 88, "secured", 30, dict(plan="professional_support")),
               ("Kevin Brown", fs, 92, "secured", 25, {})]
     for name, c, pts, status, started, kw in others:
         email = name.split()[0].lower().replace("í", "i").replace("é", "e") + "@geekforce.demo"
         st = student(name, email, c, pts, status, started, **kw)
         db.add(PointsEvent(student_id=st.id, event_type="manual_adjustment", delta=0, applied_delta=0, balance_after=pts,
                            title="Imported balance", source="system", created_at=_at(1, 8)))
+    # Interaction log for Maria
+    db.add(Interaction(student_id=maria.id, advisor_id=val.id, occurred_at=_at(1, 16), channel="whatsapp",
+                       summary="She's negotiating the Globant offer. Asked for the counter-offer script.",
+                       visibility="private", follow_up_date=local_today()))
+    db.add(Interaction(student_id=maria.id, advisor_id=val.id, occurred_at=_at(0, 8), channel="slack",
+                       summary="Shared 3 React roles at mid-size Miami companies. Apply before Friday.", visibility="shared"))
+    # A student synced from Notion, waiting for activation
+    pu = User(email="paula@geekforce.demo", name="Paula Gómez", role="student")
+    db.add(pu)
+    db.flush()
+    pst = Student(user_id=pu.id, cohort_id=fs.id, advisor_id=val.id, status="onboarding", career_points=80,
+                  guarantee_status="secured", enrollment_plan="job_guarantee", stage="job_hunting",
+                  notion_page_id="demo-notion-page", job_search_start_date=local_today() - timedelta(days=20))
+    db.add(pst)
+    db.flush()
+    for i, (co, role, status, d) in enumerate([("Kaseya", "Junior Developer", "applied", 3), ("Chewy", "Frontend Engineer", "phone_screen", 6),
+                                                ("Ultimate Software", "Software Engineer I", "applied", 9), ("Citrix", "QA Automation", "rejected", 25),
+                                                ("Magic Leap", "Frontend Developer", "applied", 40), ("Carnival", "Web Developer", "rejected", 55)]):
+        db.add(Application(student_id=pst.id, company=co, role=role, status=status, source="notion_import",
+                           external_id=f"demo-notion-app-{i}", applied_at=_at(d, 11)))
     db.commit()
     log.info("Demo data created (password: %s)", DEMO_PASSWORD)

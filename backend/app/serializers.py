@@ -4,7 +4,7 @@ from datetime import timedelta
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session as DB
 
-from .engine import activities_in_week, applications_in_week, deadline_info, is_paused
+from .engine import activities_in_week, applications_in_week, deadline_info, is_paused, quota_applies, weekly_target
 from .models import (
     ActivityLog, Application, HomeworkTask, Notification, PauseRequest, PointsEvent, ProfileTask, Session, Student,
 )
@@ -35,7 +35,7 @@ def application_dict(a: Application) -> dict:
 def activity_dict(a: ActivityLog) -> dict:
     return {"id": a.id, "kind": a.kind, "contact_name": a.contact_name, "company": a.company, "platform": a.platform,
             "url": a.url, "post_type": a.post_type, "notes": a.notes, "occurred_on": a.occurred_on.isoformat(),
-            "points_awarded": a.points_awarded}
+            "points_awarded": a.points_awarded, "status": a.status, "rejected_reason": a.rejected_reason}
 
 
 def homework_dict(t: HomeworkTask) -> dict:
@@ -53,6 +53,13 @@ def session_dict(s: Session, db: DB | None = None) -> dict:
             "attendance": s.attendance, "title": s.title, "summary": s.summary, "resources": s.resources or [],
             "advisor": s.advisor.name if s.advisor else None, "points": earned,
             "homework": [homework_dict(t) for t in s.homework]}
+
+
+def interaction_dict(i) -> dict:
+    return {"id": i.id, "occurred_at": iso(i.occurred_at), "channel": i.channel, "summary": i.summary,
+            "visibility": i.visibility, "advisor": i.advisor.name if i.advisor else None,
+            "follow_up_date": i.follow_up_date.isoformat() if i.follow_up_date else None,
+            "follow_up_done": i.follow_up_done}
 
 
 def notification_dict(n: Notification) -> dict:
@@ -86,7 +93,9 @@ def student_brief(st: Student) -> dict:
             "location": c.location if c else None, "region": c.region if c else None,
             "advisor": st.advisor.name if st.advisor else None, "advisor_id": st.advisor_id,
             "points": st.career_points, "guarantee_status": st.guarantee_status, "status": st.status,
-            "paused": is_paused(st), "paused_until": st.paused_until.isoformat() if st.paused_until else None}
+            "paused": is_paused(st), "paused_until": st.paused_until.isoformat() if st.paused_until else None,
+            "on_hold": st.on_hold, "stage": st.stage, "enrollment_plan": st.enrollment_plan,
+            "suspended_at": iso(st.suspended_at), "from_notion": bool(st.notion_page_id)}
 
 
 def _last(db, model_col, *where):
@@ -97,8 +106,8 @@ def guarantee_conditions(db: DB, st: Student, r: Rules) -> list[dict]:
     today = local_today()
     monday = week_start()
     apps = applications_in_week(db, st.id, monday)
-    last_post = _last(db, ActivityLog.occurred_on, ActivityLog.student_id == st.id, ActivityLog.kind == "linkedin_post")
-    last_out = _last(db, ActivityLog.occurred_on, ActivityLog.student_id == st.id, ActivityLog.kind == "outreach")
+    last_post = _last(db, ActivityLog.occurred_on, ActivityLog.student_id == st.id, ActivityLog.kind == "linkedin_post", ActivityLog.status == "active")
+    last_out = _last(db, ActivityLog.occurred_on, ActivityLog.student_id == st.id, ActivityLog.kind == "outreach", ActivityLog.status == "active")
     start = st.job_search_start_date or today
 
     def by(last, days):
@@ -111,9 +120,9 @@ def guarantee_conditions(db: DB, st: Student, r: Rules) -> list[dict]:
         {"key": "points", "title": f"Stay at {r.secured_threshold} points or more",
          "detail": f"You are at {st.career_points}. Below {r.suspended_below} your guarantee is suspended.",
          "ok": gap <= 0, "badge": "On track" if gap <= 0 else f"{gap} pts short"},
-        {"key": "applications", "title": f"Hit {r.weekly_application_target} applications each week",
+        {"key": "applications", "title": f"Hit {weekly_target(st, r)} applications each week",
          "detail": f"{apps} so far this week. Closes Sunday 11:59 PM.",
-         "ok": apps >= r.weekly_application_target, "badge": f"{apps} / {r.weekly_application_target}"},
+         "ok": apps >= weekly_target(st, r), "badge": f"{apps} / {weekly_target(st, r)}"},
         {"key": "homework", "title": "Do your homework before each meeting",
          "detail": ("No misses in a row." if st.consecutive_homework_misses == 0 else
                     f"{st.consecutive_homework_misses} miss in a row. A second miss adds {r.ded_homework_streak}."),
@@ -141,7 +150,7 @@ def next_actions(db: DB, st: Student, r: Rules) -> list[dict]:
     apps = applications_in_week(db, st.id, monday)
     gap = max(0, r.secured_threshold - st.career_points)
     acts = []
-    remaining = max(0, r.weekly_application_target - apps)
+    remaining = max(0, weekly_target(st, r) - apps) if quota_applies(st) else 0
     if remaining:
         n_gap = -(-gap // r.pts_application) if gap else 0
         if gap and n_gap <= remaining:
@@ -162,7 +171,7 @@ def next_actions(db: DB, st: Student, r: Rules) -> list[dict]:
                      "points": pts, "link": "/advisor"})
     originals = db.scalar(select(func.count(ActivityLog.id)).where(
         ActivityLog.student_id == st.id, ActivityLog.kind == "linkedin_post", ActivityLog.post_type == "original",
-        ActivityLog.occurred_on >= monday)) or 0
+        ActivityLog.occurred_on >= monday, ActivityLog.status == "active")) or 0
     if originals == 0:
         acts.append({"title": "Publish one original LinkedIn post",
                      "why": f"Your weekly requirement. Up to {r.cap_linkedin_posts_week} posts earn points.",
@@ -204,7 +213,8 @@ def dashboard(db: DB, st: Student) -> dict:
                        "ceiling": r.points_ceiling, "floor": r.points_floor},
         "gap_to_secure": max(0, r.secured_threshold - st.career_points),
         "week": {
-            "applications": apps, "target": r.weekly_application_target, "closes_at": iso(week_end),
+            "applications": apps, "target": weekly_target(st, r), "quota_applies": quota_applies(st),
+            "closes_at": iso(week_end),
             "linkedin_posts": activities_in_week(db, st.id, "linkedin_post", monday),
             "linkedin_cap": r.cap_linkedin_posts_week,
             "outreach": activities_in_week(db, st.id, "outreach", monday), "outreach_cap": r.cap_outreach_week,

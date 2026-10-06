@@ -126,7 +126,8 @@ function ActivityList({ items }: { items: Activity[] }) {
         <td>{a.kind === "linkedin_post" ? (a.url ? <a href={a.url} target="_blank" rel="noreferrer">{a.post_type === "original" ? "Original post" : "Repost with commentary"}</a> : a.post_type)
           : [a.contact_name, a.company, a.notes].filter(Boolean).join(" · ")}</td>
         <td className="cap">{a.platform || "—"}</td>
-        <td className={`num ${a.points_awarded ? "pos" : ""}`} style={{ textAlign: "right" }}>{a.points_awarded ? `+${a.points_awarded}` : "cap reached"}</td></tr>))}</tbody></table></div>;
+        <td className={`num ${a.points_awarded ? "pos" : ""}`} style={{ textAlign: "right" }}>{a.status === "rejected"
+          ? <span className="pill pr" title={a.rejected_reason || ""}>Rejected</span> : a.points_awarded ? `+${a.points_awarded}` : "cap reached"}</td></tr>))}</tbody></table></div>;
 }
 
 function useSubmit(onDone: (m: string) => void) {

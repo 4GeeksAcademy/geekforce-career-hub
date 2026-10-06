@@ -2,13 +2,14 @@ import { useState } from "react";
 import { api } from "../lib/api";
 import { useAuth } from "../lib/auth";
 import { useApi } from "../lib/useApi";
-import type { SessionRec } from "../lib/types";
-import { fmtDate, sessionType, signed } from "../lib/format";
+import type { Interaction, SessionRec } from "../lib/types";
+import { channelLabel, fmtDate, relTime, sessionType, signed } from "../lib/format";
 import { ErrorBox, Spinner, useToast } from "../components/ui";
 import { ICal, IX } from "../components/Icons";
 
 export default function AdvisorHub() {
   const { data, error, loading, reload } = useApi<SessionRec[]>("/students/me/sessions");
+  const notes = useApi<Interaction[]>("/students/me/interactions");
   const { refresh } = useAuth();
   const toast = useToast();
   const [open, setOpen] = useState<Record<string, boolean>>({});
@@ -46,6 +47,13 @@ export default function AdvisorHub() {
           </section>
         </div>
 
+        {notes.data && notes.data.length > 0 && (
+          <section className="card stack" style={{ gap: 6 }}>
+            <h2 className="h2">Notes from your advisor</h2>
+            {notes.data.map((n) => <div key={n.id} style={{ padding: "12px 0", borderBottom: "1px solid var(--line-soft)" }}>
+              <div className="cap">{relTime(n.occurred_at)} · {channelLabel[n.channel]}{n.advisor ? ` · ${n.advisor}` : ""}</div>
+              <div style={{ whiteSpace: "pre-line" }}>{n.summary}</div></div>)}
+          </section>)}
         {past.length === 0 && <div className="card empty">Your first session notes will show up here.</div>}
         {past.map((s, i) => {
           const missed = s.attendance === "absent";

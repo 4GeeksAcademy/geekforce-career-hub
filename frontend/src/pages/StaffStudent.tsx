@@ -2,9 +2,10 @@ import { useEffect, useState, type FormEvent } from "react";
 import { Link, useParams } from "react-router-dom";
 import { api } from "../lib/api";
 import { useApi } from "../lib/useApi";
-import type { AppItem, Dashboard, PointsEvent, SessionRec } from "../lib/types";
-import { fmtDate, relTime, sessionType, signed, statusLabel, statusNum } from "../lib/format";
-import { ErrorBox, Spinner, StatusPill, useToast } from "../components/ui";
+import type { Activity, AppItem, Dashboard, Interaction, PointsEvent, SessionRec } from "../lib/types";
+import { channelLabel, fmtDate, planLabel, relTime, sessionType, signed, stageLabel, statusLabel, statusNum, todayISO } from "../lib/format";
+import { useAuth } from "../lib/auth";
+import { ErrorBox, Modal, Spinner, StatusPill, useToast } from "../components/ui";
 import { IBack } from "../components/Icons";
 
 type Preview = { effects: { type: string; delta: number; title: string }[]; balance_before: number; balance_after: number;
@@ -47,7 +48,13 @@ export default function StaffStudent() {
           <div style={{ display: "flex", gap: 16, alignItems: "center", flex: "1 1 300px" }}>
             <div className="av" style={{ width: 60, height: 60, fontSize: 20 }}>{st.initials}</div>
             <div><h1 style={{ fontSize: 24, fontWeight: 800 }}>{st.name}</h1>
-              <div className="cap">{[st.cohort, d.deadline.day ? `job search day ${d.deadline.day}` : null, st.email].filter(Boolean).join(" · ")}</div></div>
+              <div className="cap">{[st.cohort, d.deadline.day ? `job search day ${d.deadline.day}` : null, st.email].filter(Boolean).join(" · ")}</div>
+              <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 6 }}>
+                <span className="pill pb">{planLabel(st.enrollment_plan)}</span>
+                {st.stage && <span className="pill pg">{stageLabel[st.stage]}</span>}
+                {st.on_hold && <span className="pill pr">On hold · no first 1:1</span>}
+                {st.from_notion && <span className="pill pg">Synced from Notion</span>}
+              </div></div>
           </div>
           <div style={{ display: "flex", gap: 12, flexWrap: "wrap", flex: "2 1 520px" }}>
             <Stat l="Points"><span className="num" style={{ fontSize: 24, color: statusNum(d.status) }}>{d.points}</span> <StatusPill status={d.status} paused={d.pause.active} /></Stat>
@@ -72,6 +79,12 @@ export default function StaffStudent() {
                 <strong className={e.delta < 0 ? "neg" : "pos"}>{signed(e.delta)}</strong></div>)}
             </section>
           </div>
+        </div>
+
+        {d.status === "suspended" && <Reinstate studentId={st.id} since={st.suspended_at} onDone={(m) => { toast(m); reload(); }} />}
+        <div className="row" style={{ alignItems: "flex-start" }}>
+          <Interactions studentId={st.id} />
+          <Entries studentId={st.id} onDone={(m) => { toast(m); reload(); }} />
         </div>
 
         <section className="card stack">
@@ -121,7 +134,7 @@ function LogSession({ d, scheduledId, scheduledDate, onSaved }: { d: Dashboard; 
     }, 300);
     return () => clearTimeout(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [date, type, att, done, summary.length > 0, hw.filter((h) => h.description.trim().length >= 3).length]);
+  }, [date, type, att, done, summary.length > 0, hw.filter((h) => h.description.trim().length >= 3).length, d.points]);
 
   const save = async (e: FormEvent) => {
     e.preventDefault(); setBusy(true); setErr(null);
@@ -188,6 +201,8 @@ function LogSession({ d, scheduledId, scheduledDate, onSaved }: { d: Dashboard; 
           {preview.emails.map((n) => <div key={n} style={{ display: "flex", justifyContent: "space-between", fontSize: 14, padding: "8px 0", borderBottom: "1px dashed var(--blue-line)" }}><span>Email: {n}</span><strong>Brevo</strong></div>)}
           <div style={{ display: "flex", justifyContent: "space-between", fontWeight: 800, paddingTop: 8 }}><span>Balance</span>
             <span>{preview.balance_before} → {preview.balance_after} · {statusLabel[preview.status_after] || preview.status_after}</span></div>
+          {preview.status_after === "suspended" && d.status !== "suspended" && d.status !== "not_eligible" &&
+            <div className="err" style={{ marginTop: 8 }}>Saving this suspends {first}'s Job Guarantee permanently. Only an admin can reverse it.</div>}
         </div>)}
       <ErrorBox error={err} />
       <button className="btn bp" style={{ alignSelf: "flex-start" }} disabled={busy}>{busy ? "Saving…" : "Save session"}</button>
@@ -272,3 +287,110 @@ function Project({ studentId, onDone }: { studentId: string; onDone: (m: string)
   </form>;
 }
 
+
+
+function Interactions({ studentId }: { studentId: string }) {
+  const list = useApi<Interaction[]>(`/students/${studentId}/interactions`);
+  const now = () => { const d = new Date(); return new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 16); };
+  const blank = { occurred_at: now(), channel: "slack", summary: "", visibility: "private", follow_up_date: "" };
+  const [f, setF] = useState(blank);
+  const [err, setErr] = useState<unknown>(null);
+  const submit = async (e: FormEvent) => {
+    e.preventDefault(); setErr(null);
+    try { await api.post("/advisor/interactions", { ...f, student_id: studentId, occurred_at: new Date(f.occurred_at).toISOString(), follow_up_date: f.follow_up_date || null });
+      setF(blank); list.reload(); } catch (e) { setErr(e); }
+  };
+  const done = async (i: Interaction) => { await api.patch(`/advisor/interactions/${i.id}`, { follow_up_done: true }); list.reload(); };
+  return <section className="card stack" style={{ flex: "3 1 520px", minWidth: 0 }}>
+    <div className="between"><h2 className="h2">Interaction log</h2><span className="cap">Every touchpoint outside sessions</span></div>
+    <form className="stack" style={{ gap: 10, background: "var(--bg2)", borderRadius: 12, padding: 16 }} onSubmit={submit}>
+      <div className="grid" style={{ gap: 10, gridTemplateColumns: "repeat(auto-fit,minmax(150px,1fr))" }}>
+        <div><label className="lb" htmlFor="ic">Channel</label><select className="in" id="ic" value={f.channel} onChange={(e) => setF({ ...f, channel: e.target.value })}>
+          {Object.entries(channelLabel).map(([k, l]) => <option key={k} value={k}>{l}</option>)}</select></div>
+        <div><label className="lb" htmlFor="iw">When</label><input className="in" id="iw" type="datetime-local" value={f.occurred_at} onChange={(e) => setF({ ...f, occurred_at: e.target.value })} /></div>
+        <div><label className="lb" htmlFor="if">Follow up on (optional)</label><input className="in" id="if" type="date" min={todayISO()} value={f.follow_up_date} onChange={(e) => setF({ ...f, follow_up_date: e.target.value })} /></div>
+      </div>
+      <div><label className="lb" htmlFor="is">What happened</label><textarea className="in" id="is" style={{ minHeight: 80 }} required value={f.summary} onChange={(e) => setF({ ...f, summary: e.target.value })} placeholder="e.g. Called about the Globant offer; she'll send her counter by Friday." /></div>
+      <div className="between">
+        <div className="seg" style={{ flex: "0 1 360px" }}>
+          <button type="button" className={f.visibility === "private" ? "on" : ""} onClick={() => setF({ ...f, visibility: "private" })}>Private (staff only)</button>
+          <button type="button" className={f.visibility === "shared" ? "on" : ""} onClick={() => setF({ ...f, visibility: "shared" })}>Shared with student</button>
+        </div>
+        <button className="btn bp">Add to log</button>
+      </div>
+      <ErrorBox error={err} />
+    </form>
+    {list.data?.length === 0 && <div className="empty">No interactions logged yet.</div>}
+    {list.data?.map((i) => (
+      <div key={i.id} style={{ display: "flex", gap: 12, padding: "12px 0", borderBottom: "1px solid var(--line-soft)" }}>
+        <span className="pill pg" style={{ alignSelf: "flex-start" }}>{channelLabel[i.channel]}</span>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ whiteSpace: "pre-line" }}>{i.summary}</div>
+          <div className="cap">{relTime(i.occurred_at)}{i.advisor ? ` · ${i.advisor}` : ""} · {i.visibility === "shared" ? "shared with student" : "private"}</div>
+          {i.follow_up_date && !i.follow_up_done && <div style={{ marginTop: 6, display: "flex", gap: 8, alignItems: "center" }}>
+            <span className={`pill ${i.follow_up_date <= todayISO() ? "pa" : "pb"}`}>Follow up {fmtDate(i.follow_up_date)}</span>
+            <button className="btn bg sm" onClick={() => done(i)}>Mark done</button></div>}
+          {i.follow_up_done && <div className="cap">Follow-up done</div>}
+        </div>
+      </div>))}
+  </section>;
+}
+
+function Entries({ studentId, onDone }: { studentId: string; onDone: (m: string) => void }) {
+  const list = useApi<{ items: Activity[] }>(`/students/${studentId}/activities`);
+  const [rejecting, setRejecting] = useState<Activity | null>(null);
+  const [reason, setReason] = useState("");
+  const [err, setErr] = useState<unknown>(null);
+  const label = { outreach: "Outreach", linkedin_post: "LinkedIn", networking: "Networking" } as const;
+  const submit = async (e: FormEvent) => {
+    e.preventDefault();
+    try { await api.post(`/advisor/activities/${rejecting!.id}/reject`, { reason }); setRejecting(null); setReason(""); list.reload(); onDone("Entry rejected · points removed · student notified"); }
+    catch (e) { setErr(e); }
+  };
+  const items = list.data?.items.slice(0, 12) || [];
+  return <section className="card stack" style={{ flex: "2 1 340px", minWidth: 0 }}>
+    <div className="between"><h2 className="h2">Self-reported entries</h2><span className="cap">Spot-check and reject if unverifiable</span></div>
+    {items.length === 0 && <div className="empty">Nothing logged yet.</div>}
+    {items.map((a) => (
+      <div key={a.id} style={{ display: "flex", gap: 10, alignItems: "center", padding: "10px 0", borderBottom: "1px solid var(--line-soft)" }}>
+        <span className="pill pg">{label[a.kind]}</span>
+        <div style={{ flex: 1, minWidth: 0, fontSize: 14 }}>
+          {a.kind === "linkedin_post" ? (a.url ? <a href={a.url} target="_blank" rel="noreferrer">{a.post_type === "original" ? "Original post" : "Repost with commentary"}</a> : "Post")
+            : [a.contact_name, a.company, a.notes].filter(Boolean).join(" · ")}
+          <div className="cap">{fmtDate(a.occurred_on)}{a.platform ? ` · ${a.platform}` : ""}</div></div>
+        {a.status === "rejected" ? <span className="pill pr" title={a.rejected_reason || ""}>Rejected</span>
+          : <button className="btn bd sm" onClick={() => setRejecting(a)}>Reject{a.points_awarded ? ` · −${a.points_awarded}` : ""}</button>}
+      </div>))}
+    {rejecting && <Modal title="Reject this entry" onClose={() => setRejecting(null)}>
+      <form className="stack" onSubmit={submit}>
+        <p className="cap" style={{ fontSize: 14 }}>The points come off and the student sees your reason.</p>
+        <div><label className="lb" htmlFor="rr">Reason</label><textarea className="in" id="rr" required minLength={5} value={reason} onChange={(e) => setReason(e.target.value)} placeholder="e.g. Couldn't find this message in the screenshot you shared." /></div>
+        <ErrorBox error={err} />
+        <button className="btn bd">Reject entry</button>
+      </form></Modal>}
+  </section>;
+}
+
+function Reinstate({ studentId, since, onDone }: { studentId: string; since: string | null; onDone: (m: string) => void }) {
+  const { user } = useAuth();
+  const [open, setOpen] = useState(false);
+  const [reason, setReason] = useState("");
+  const [pts, setPts] = useState("");
+  const [err, setErr] = useState<unknown>(null);
+  const submit = async (e: FormEvent) => {
+    e.preventDefault();
+    try { await api.post(`/admin/students/${studentId}/reinstate`, { reason, set_points: pts ? Number(pts) : null }); setOpen(false); onDone("Guarantee reinstated · logged"); }
+    catch (e) { setErr(e); }
+  };
+  return <section className="callout" style={{ background: "var(--red-soft)", color: "#7F1D1D" }}>
+    <div style={{ flex: "1 1 320px" }}><strong>Job Guarantee suspended{since ? ` on ${fmtDate(since, { month: "short", day: "numeric", year: "numeric" })}` : ""}.</strong> Suspension is permanent; only an admin can reinstate it, with a reason.</div>
+    {user?.role === "admin" && <button className="btn bd" onClick={() => setOpen(true)}>Reinstate guarantee</button>}
+    {open && <Modal title="Reinstate the Job Guarantee" onClose={() => setOpen(false)}>
+      <form className="stack" onSubmit={submit}>
+        <div><label className="lb" htmlFor="rs">Reason (saved in the audit log)</label><textarea className="in" id="rs" required minLength={10} value={reason} onChange={(e) => setReason(e.target.value)} placeholder="e.g. Deduction was logged against the wrong student." /></div>
+        <div><label className="lb" htmlFor="rp">Correct the balance to (optional, 60 or more)</label><input className="in" id="rp" type="number" min={60} max={100} value={pts} onChange={(e) => setPts(e.target.value)} /></div>
+        <ErrorBox error={err} />
+        <button className="btn bp">Reinstate</button>
+      </form></Modal>}
+  </section>;
+}

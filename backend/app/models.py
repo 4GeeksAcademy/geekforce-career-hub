@@ -61,7 +61,8 @@ class Student(TimestampMixin, Base):
     career_points: Mapped[int] = mapped_column(Integer, default=80)
     # secured | at_risk | suspended | not_eligible
     guarantee_status: Mapped[str] = mapped_column(String(20), default="secured")
-    status: Mapped[str] = mapped_column(String(20), default="active")  # active | hired | withdrawn
+    status: Mapped[str] = mapped_column(String(20), default="active")  # onboarding | active | hired | withdrawn
+    suspended_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))  # suspension is permanent
 
     consecutive_homework_misses: Mapped[int] = mapped_column(Integer, default=0)
     missed_meetings: Mapped[int] = mapped_column(Integer, default=0)
@@ -69,6 +70,14 @@ class Student(TimestampMixin, Base):
     job_search_start_date: Mapped[date | None] = mapped_column(Date)
     deadline_days: Mapped[int | None] = mapped_column(Integer)  # overrides cohort / default
     deadline_extension_days: Mapped[int] = mapped_column(Integer, default=0)
+    deadline_date: Mapped[date | None] = mapped_column(Date)  # explicit JG deadline (e.g. from Notion); overrides days
+    notion_page_id: Mapped[str | None] = mapped_column(String(64), unique=True)
+    enrollment_plan: Mapped[str | None] = mapped_column(String(30))  # job_guarantee | professional_support
+    # not_started | profile | interview_prep | job_hunting | placed (synced from Notion "GeekForce Stages completion")
+    stage: Mapped[str | None] = mapped_column(String(20))
+    on_hold: Mapped[bool] = mapped_column(Boolean, default=False)  # Not Started ladder day 15: checks frozen
+    not_started_level: Mapped[int] = mapped_column(Integer, default=0)  # last ladder step applied (0/7/15/30)
+    activated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
     paused_from: Mapped[date | None] = mapped_column(Date)
     paused_until: Mapped[date | None] = mapped_column(Date)
@@ -116,7 +125,8 @@ class Application(TimestampMixin, Base):
     # applied | phone_screen | technical | final | offer | rejected | withdrawn
     status: Mapped[str] = mapped_column(String(20), default="applied")
     # extension_linkedin | extension_indeed | extension_glassdoor | extension_greenhouse | manual
-    source: Mapped[str] = mapped_column(String(30), default="manual")
+    source: Mapped[str] = mapped_column(String(30), default="manual")  # … | notion_import
+    external_id: Mapped[str | None] = mapped_column(String(64), unique=True)  # Notion page id for imported rows
     notes: Mapped[str | None] = mapped_column(Text)
     followup_date: Mapped[date | None] = mapped_column(Date)
     applied_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
@@ -138,6 +148,8 @@ class ActivityLog(TimestampMixin, Base):
     occurred_on: Mapped[date] = mapped_column(Date)
     points_awarded: Mapped[int] = mapped_column(Integer, default=0)
     verified_by: Mapped[str | None] = mapped_column(ForeignKey("users.id"))
+    status: Mapped[str] = mapped_column(String(20), default="active")  # active | rejected
+    rejected_reason: Mapped[str | None] = mapped_column(Text)
 
 
 class ProfileTask(Base):
@@ -247,3 +259,27 @@ class AuditLog(TimestampMixin, Base):
     action: Mapped[str] = mapped_column(String(60))
     detail: Mapped[str] = mapped_column(Text)
     data: Mapped[dict | None] = mapped_column(JSON)
+
+
+class Interaction(TimestampMixin, Base):
+    """Advisor touchpoints outside formal sessions (calls, Slack, WhatsApp, email, check-ins)."""
+    __tablename__ = "interactions"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    student_id: Mapped[str] = mapped_column(ForeignKey("students.id"), index=True)
+    advisor_id: Mapped[str | None] = mapped_column(ForeignKey("users.id"))
+    occurred_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    channel: Mapped[str] = mapped_column(String(20))  # call | slack | whatsapp | email | meeting | other
+    summary: Mapped[str] = mapped_column(Text)
+    visibility: Mapped[str] = mapped_column(String(10), default="private")  # private (staff only) | shared
+    follow_up_date: Mapped[date | None] = mapped_column(Date)
+    follow_up_done: Mapped[bool] = mapped_column(Boolean, default=False)
+    advisor: Mapped[User | None] = relationship()
+
+
+class SyncRun(TimestampMixin, Base):
+    __tablename__ = "sync_runs"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    source: Mapped[str] = mapped_column(String(20), default="notion")
+    ok: Mapped[bool] = mapped_column(Boolean, default=True)
+    summary: Mapped[dict] = mapped_column(JSON)
+    triggered_by: Mapped[str | None] = mapped_column(ForeignKey("users.id"))
