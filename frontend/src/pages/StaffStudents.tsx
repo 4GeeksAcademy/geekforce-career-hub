@@ -4,6 +4,7 @@ import { useApi } from "../lib/useApi";
 import type { StaffRow } from "../lib/types";
 import { fmtDate, stageLabel, statusColor } from "../lib/format";
 import { ErrorBox, Spinner, StatusPill } from "../components/ui";
+import { useAuth } from "../lib/auth";
 
 type List = { summary: Record<string, number>; items: StaffRow[]; target: number; max_missed: number; cohorts: { id: string; name: string }[] };
 type Att = { kind: string; student_id: string; pause_id?: string; text: string };
@@ -18,25 +19,44 @@ export default function StaffStudents() {
   const att = useApi<Att[]>("/advisor/attention");
   const nav = useNavigate();
   const s = list.data?.summary;
+  const { user } = useAuth();
+  const first = (user?.name || "").split(" ")[0];
+  const h = new Date().getHours();
+  const greet = h < 12 ? "Good morning" : h < 18 ? "Good afternoon" : "Good evening";
+  const n = att.data?.length ?? 0;
+  const firstAtt = att.data?.find((a) => a.kind !== "pause" && a.kind !== "onboarding");
 
   return (
     <>
-      <header className="top"><div><h1>My students</h1><div className="sub">Sorted by who needs you first</div></div></header>
+      <header className="top"><div><div className="kick">GeekForce · Career Hub</div><h1>My <em>students.</em></h1><div className="sub">Sorted by who needs you first</div></div></header>
       <div className="content">
-        {s && <div style={{ display: "flex", gap: 16, flexWrap: "wrap" }}>
-          <div className="kpi"><span className="eyebrow">Students</span><span className="num" style={{ fontSize: 32 }}>{s.students}</span><span className="cap">{s.hired} hired</span></div>
-          <div className="kpi" style={{ background: "var(--blue-tint)", borderColor: "var(--blue-line)" }}><span className="eyebrow" style={{ color: "#0F3F85" }}>Secured</span><span className="num" style={{ fontSize: 32, color: "var(--blue-deep)" }}>{s.secured}</span><span className="cap" style={{ color: "#0F3F85" }}>80+ points</span></div>
-          <div className="kpi" style={{ background: "var(--amber-soft)", borderColor: "#F5E1A8" }}><span className="eyebrow" style={{ color: "#5C3B00" }}>At risk</span><span className="num" style={{ fontSize: 32, color: "var(--amber-ink)" }}>{s.at_risk}</span><span className="cap" style={{ color: "#5C3B00" }}>60–79 points</span></div>
-          <div className="kpi" style={{ background: "var(--red-soft)", borderColor: "#F6CACC" }}><span className="eyebrow" style={{ color: "#7F1D1D" }}>Suspended</span><span className="num" style={{ fontSize: 32, color: "var(--red-ink)" }}>{s.suspended}</span><span className="cap" style={{ color: "#7F1D1D" }}>below 60</span></div>
-          <div className="kpi"><span className="eyebrow">On pause</span><span className="num" style={{ fontSize: 32 }}>{s.paused}</span><span className="cap">deductions frozen</span></div>
+        <section className="hero">
+          <div style={{ flex: "1 1 420px" }}>
+            <span className="chipy">{new Date().toLocaleDateString("en-US", { weekday: "long", month: "short", day: "numeric" }).toUpperCase()}</span>
+            <h2>{greet}, {first}. {n ? <><em>{n} {n === 1 ? "thing needs" : "things need"} you</em> today.</> : <>Everyone is <em>on track.</em></>}</h2>
+            {s && <p>{s.students} students · {s.secured} secured · {s.at_risk} at risk · {s.suspended} suspended · {s.hired} hired</p>}
+          </div>
+          <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+            {firstAtt ? <Link className="btn by" to={`/staff/students/${firstAtt.student_id}`}>Start with the first one</Link>
+              : <Link className="btn by" to="/staff/onboarding">Open onboarding</Link>}
+            <Link className="btn bwo" to="/staff/notifications">See alerts</Link>
+          </div>
+        </section>
+
+        {s && <div className="stats">
+          <div className="stat"><span className="l">Students</span><span className="v">{s.students}</span><span className="c">{s.hired} hired</span></div>
+          <div className="stat s-blue"><span className="l">Secured</span><span className="v">{s.secured}</span><span className="c">80+ points</span></div>
+          <div className="stat s-amber"><span className="l">At risk</span><span className="v">{s.at_risk}</span><span className="c">60–79 points</span></div>
+          <div className="stat s-red"><span className="l">Suspended</span><span className="v">{s.suspended}</span><span className="c">below 60</span></div>
+          <div className="stat"><span className="l">On pause</span><span className="v">{s.paused}</span><span className="c">deductions frozen</span></div>
         </div>}
 
         {att.data && att.data.length > 0 && (
           <section className="card" style={{ display: "flex", flexDirection: "column" }}>
-            <div className="between" style={{ marginBottom: 4 }}><h2 className="h2">Needs your attention</h2><span className="cap">{att.data.length} items</span></div>
+            <div className="between" style={{ marginBottom: 4 }}><h2 className="h2">Needs your <em>attention</em></h2><span className="cap">{att.data.length} items</span></div>
             {att.data.map((a, i) => (
               <div key={i} style={{ display: "flex", gap: 14, alignItems: "center", padding: "14px 0", borderBottom: "1px solid var(--line-soft)", flexWrap: "wrap" }}>
-                <span className={`pill ${ATT[a.kind][1]}`}>{ATT[a.kind][0]}</span>
+                <span className="ynum">{i + 1}</span><span className={`pill ${ATT[a.kind][1]}`}>{ATT[a.kind][0]}</span>
                 <div style={{ flex: "1 1 300px" }}>{a.text}</div>
                 <Link className="btn bg sm" to={a.kind === "pause" ? "/admin" : a.kind === "onboarding" ? "/staff/onboarding" : `/staff/students/${a.student_id}`}>{a.kind === "pause" ? "Review request" : a.kind === "onboarding" ? "Open onboarding" : "Open student"}</Link>
               </div>))}
@@ -44,7 +64,7 @@ export default function StaffStudents() {
 
         <section className="card stack" style={{ gap: 16 }}>
           <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
-            <h2 className="h2" style={{ marginRight: "auto" }}>All students</h2>
+            <h2 className="h2" style={{ marginRight: "auto" }}>All <em>students</em></h2>
             <label><span className="sr">Cohort</span><select className="in" value={cohort} onChange={(e) => setCohort(e.target.value)}>
               <option value="">All cohorts</option>{list.data?.cohorts.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}</select></label>
             <label><span className="sr">Status</span><select className="in" value={status} onChange={(e) => setStatus(e.target.value)}>
@@ -59,7 +79,7 @@ export default function StaffStudents() {
                 <tr key={r.id} className="click" onClick={() => nav(`/staff/students/${r.id}`)}>
                   <td><Link to={`/staff/students/${r.id}`} style={{ display: "flex", alignItems: "center", gap: 12, color: "var(--ink)", fontWeight: 700 }} onClick={(e) => e.stopPropagation()}>
                     <span className="av soft" style={{ width: 36, height: 36, fontSize: 13 }}>{r.initials}</span>
-                    <span>{r.name}<span className="cap" style={{ display: "block", fontWeight: 500 }}>{r.cohort}</span></span></Link></td>
+                    <span style={{ whiteSpace: "nowrap" }}>{r.name}<span className="cap" style={{ display: "block", fontWeight: 500 }}>{r.cohort}</span></span></Link></td>
                   <td style={{ whiteSpace: "nowrap" }}><span className="num">{r.points}</span>
                     <span style={{ width: 72, height: 6, borderRadius: 3, background: "var(--line)", display: "inline-block", verticalAlign: "middle", marginLeft: 10, overflow: "hidden" }}><span style={{ display: "block", height: "100%", width: `${r.points}%`, background: statusColor(r.guarantee_status) }} /></span></td>
                   <td>{r.status === "hired" ? <span className="pill pn">Hired</span> : r.on_hold ? <span className="pill pr">On hold</span> : <StatusPill status={r.guarantee_status} paused={r.paused} />}</td>

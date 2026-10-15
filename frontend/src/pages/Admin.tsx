@@ -22,7 +22,7 @@ export function AdminPauses() {
   const runJob = async (name: string) => { const r = await api.post(`/admin/jobs/${name}`); toast(`Ran ${name}: ${JSON.stringify(r)}`); };
   return (
     <>
-      <header className="top"><div><h1>Pause requests</h1><div className="sub">One pause per student per program cycle. Every decision is logged.</div></div></header>
+      <header className="top"><div><div className="kick">Manage</div><h1>Pause <em>requests.</em></h1><div className="sub">One pause per student per program cycle. Every decision is logged.</div></div></header>
       <div className="content">
         <section className="card stack">
           {pauses.loading ? <Spinner /> : <ErrorBox error={pauses.error} />}
@@ -68,9 +68,9 @@ export function AdminRules() {
     try { await api.put("/admin/rules", { values: Object.fromEntries(changed.map((r) => [r.key, Number(vals[r.key])])) }); toast(`${changed.length} rule(s) updated`); rules.reload(); }
     catch (e) { setErr(e); }
   };
-  const group = (g: string, title: string) => (
+  const group = (g: string, title: string, n: number) => (
     <section className="card stack">
-      <h2 className="h2">{title}</h2>
+      <div style={{ display: "flex", alignItems: "center", gap: 12 }}><span className="ynum">{n}</span><h2 className="h2">{title}</h2></div>
       <div className="grid" style={{ gap: 14, gridTemplateColumns: "repeat(auto-fit,minmax(230px,1fr))" }}>
         {rules.data?.filter((r) => r.group === g).map((r) => (
           <div key={r.key}><label className="lb" htmlFor={r.key}>{r.label}</label>
@@ -81,9 +81,9 @@ export function AdminRules() {
     </section>);
   return (
     <>
-      <header className="top"><div><h1>Rules &amp; points</h1><div className="sub">Defaults come from the Career Points Policy v1.0. Changes apply from now on and are logged.</div></div>
+      <header className="top"><div><div className="kick">Admin · Career Points Policy</div><h1>Rules &amp; <em>points.</em></h1><div className="sub">Defaults come from the Career Points Policy v1.0. Changes apply from now on and are logged.</div></div>
         <button className="btn bp" disabled={!changed.length} onClick={save}>Save {changed.length || ""} change{changed.length === 1 ? "" : "s"}</button></header>
-      <div className="content"><ErrorBox error={err} />{group("thresholds", "Thresholds & limits")}{group("earn", "Earn points")}{group("lose", "Lose points (use negative numbers)")}</div>
+      <div className="content"><ErrorBox error={err} />{group("thresholds", "Thresholds & limits", 1)}{group("earn", "Earn points", 2)}{group("lose", "Lose points (use negative numbers)", 3)}</div>
     </>);
 }
 
@@ -100,7 +100,7 @@ export function AdminPeople() {
   const advisors = users.data?.filter((u) => u.role !== "student") || [];
   return (
     <>
-      <header className="top"><div><h1>People &amp; cohorts</h1><div className="sub">Create student, advisor and admin accounts.</div></div>
+      <header className="top"><div><div className="kick">Admin</div><h1>People &amp; <em>cohorts.</em></h1><div className="sub">Create student, advisor and admin accounts.</div></div>
         <div style={{ display: "flex", gap: 10 }}><button className="btn bg" onClick={() => setAddingCohort(true)}>New cohort</button><button className="btn bp" onClick={() => setAdding(true)}><IPlus size={18} />Add person</button></div></header>
       <div className="content">
         <section className="card stack">
@@ -183,7 +183,7 @@ export function AdminAudit() {
   const rows = useApi<{ id: string; created_at: string; actor: string; student: string | null; action: string; detail: string }[]>("/admin/audit");
   return (
     <>
-      <header className="top"><div><h1>Audit log</h1><div className="sub">Manual point changes, pauses, offer reports and rule changes.</div></div></header>
+      <header className="top"><div><div className="kick">Admin</div><h1>Audit <em>log.</em></h1><div className="sub">Manual point changes, pauses, offer reports and rule changes.</div></div></header>
       <div className="content"><section className="card">
         {rows.loading ? <Spinner /> : rows.data?.length === 0 ? <div className="empty">Nothing logged yet.</div> :
           <div className="tw"><table><thead><tr><th>When</th><th>Who</th><th>Student</th><th>Action</th><th>Detail</th></tr></thead>

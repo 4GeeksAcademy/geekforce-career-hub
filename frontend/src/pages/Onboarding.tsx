@@ -31,7 +31,7 @@ export default function Onboarding() {
   return (
     <>
       <header className="top">
-        <div><h1>Onboarding</h1><div className="sub">Students synced from Notion wait here until you set their starting balance and send their login.</div></div>
+        <div><div className="kick">Students · from Notion</div><h1>Onboarding. <em>Set them up.</em></h1><div className="sub">Students synced from Notion wait here until you set their starting balance and send their login.</div></div>
         <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
           <button className="btn bg" onClick={() => setAdding(true)}><IPlus size={18} />Add student manually</button>
           <button className="btn bp" disabled={syncing || !status.data?.connected} onClick={sync}>{syncing ? "Syncing…" : "Sync from Notion"}</button>

@@ -110,3 +110,51 @@ textarea.in{min-height:110px;resize:vertical;line-height:1.5}
   .nav{flex-direction:row;overflow-x:auto}.ng{display:none}.nl{white-space:nowrap}
   .top,.content{padding-left:16px;padding-right:16px}.mini,.me{display:none}
 }
+
+/* ---------- Staff & admin: 4Geeks brand refresh (Oct 2026) ---------- */
+.staff{background:#fff}
+.staff .main{background:var(--bg)}
+.staff .side{background:#fff;border-right:1px solid var(--line);gap:20px}
+.staff .brand img{width:150px}
+.staff .product{color:var(--blue);letter-spacing:.16em}
+.staff .me{border-color:var(--line)}
+.staff .ng{color:var(--blue);letter-spacing:.14em;padding:14px 14px 6px}
+.staff .nl{color:var(--body);font-weight:600;border-radius:999px}
+.staff .nl:hover{background:var(--blue-tint);color:var(--blue-deep)}
+.staff .nl.active{background:var(--blue-deep);color:#fff;font-weight:700}
+.staff .signout{color:var(--muted)}
+.role-pill{display:inline-flex;align-items:center;padding:3px 10px;border-radius:999px;background:var(--amber);color:var(--ink);font-size:11px;font-weight:800;letter-spacing:.06em}
+.staff .top{background:#fff;border-bottom:1px solid var(--line);padding:26px 32px}
+.kick{font-size:12px;font-weight:800;letter-spacing:.14em;text-transform:uppercase;color:var(--blue);margin-bottom:6px;display:flex;align-items:center;gap:8px}
+.kick::before{content:"";width:8px;height:8px;border-radius:50%;background:var(--amber)}
+.staff .top h1{font-size:30px;font-weight:800;letter-spacing:-.02em}
+.staff h1 em,.staff h2 em{font-style:italic;color:var(--blue)}
+.staff .card{border-radius:18px;border-color:var(--line)}
+.staff th{background:var(--blue-tint);color:var(--ink);font-weight:800;border-bottom:none}
+.staff .tw{border-color:var(--line);border-radius:14px}
+.staff tr.click:hover td{background:#F7FAFF}
+.staff .chip.on{background:var(--blue-deep);border-color:var(--blue-deep)}
+.staff .tab.on{color:var(--blue-deep);border-bottom-color:var(--amber);border-bottom-width:3px}
+/* solid-blue hero panel (one per page) */
+.hero{background:var(--blue-deep);color:#fff;border-radius:22px;padding:30px 32px;display:flex;gap:24px;align-items:center;flex-wrap:wrap;position:relative;overflow:hidden}
+.hero h2{font-size:30px;font-weight:800;letter-spacing:-.02em;line-height:1.15}
+.hero h2 em{font-style:italic;color:#fff}
+.hero p{color:#E3EEFF;font-size:15px;margin-top:8px}
+.hero .chipy{display:inline-flex;align-items:center;gap:6px;background:var(--amber);color:var(--ink);font-size:12px;font-weight:800;letter-spacing:.06em;padding:4px 12px;border-radius:999px;margin-bottom:12px}
+.by{background:var(--amber);color:var(--ink);border-color:var(--amber)}.by:hover:not(:disabled){background:#E9A825;color:var(--ink)}
+.bwo{background:transparent;color:#fff;border-color:rgba(255,255,255,.55)}.bwo:hover:not(:disabled){background:rgba(255,255,255,.12);color:#fff}
+/* pastel stat cards */
+.stats{display:grid;gap:16px;grid-template-columns:repeat(auto-fit,minmax(170px,1fr))}
+.stat{border-radius:18px;padding:20px 22px;display:flex;flex-direction:column;gap:6px;background:#fff;border:1px solid var(--line)}
+.stat .v{font-size:38px;font-weight:800;line-height:1;letter-spacing:-.02em;font-variant-numeric:tabular-nums}
+.stat .l{font-size:12px;font-weight:800;letter-spacing:.09em;text-transform:uppercase;color:var(--body)}
+.stat .c{font-size:13px;color:var(--body)}
+.stat.s-blue{background:#E9F2FE;border-color:transparent}.stat.s-blue .v{color:var(--blue-deep)}
+.stat.s-amber{background:var(--amber-soft);border-color:transparent}.stat.s-amber .v{color:var(--ink)}
+.stat.s-red{background:var(--red-soft);border-color:transparent}.stat.s-red .v{color:var(--red-ink)}
+.stat.s-cream{background:#FFF6E0;border-color:transparent}
+/* yellow number circles + highlight strip */
+.ynum{width:30px;height:30px;border-radius:50%;background:var(--amber);color:var(--ink);font-weight:800;font-size:13px;display:flex;align-items:center;justify-content:center;flex:none}
+.strip{background:var(--amber-soft);border-radius:14px;padding:12px 16px;font-size:14px;color:var(--ink);display:flex;gap:10px;align-items:center}
+.strip b{font-weight:800}
+@media (max-width:720px){.hero{padding:22px}.hero h2{font-size:24px}.staff .top h1{font-size:24px}}

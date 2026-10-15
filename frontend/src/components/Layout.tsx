@@ -51,13 +51,15 @@ export function StaffLayout() {
   const { user, logout } = useAuth();
   const isAdmin = user?.role === "admin";
   return (
-    <div className="app">
-      <aside className="side dark">
-        <div className="brand"><img src="/4geeks-logo-white.svg" alt="4Geeks" /><div className="product">GEEKFORCE · {isAdmin ? "ADMIN" : "ADVISOR"}</div></div>
+    <div className="app staff">
+      <aside className="side">
+        <div className="brand"><img src="/4geeks-logo-dark.svg" alt="4Geeks" />
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}><span className="product">GEEKFORCE</span><span className="role-pill">{isAdmin ? "ADMIN" : "ADVISOR"}</span></div></div>
         <div className="me"><div className="av">{user?.initials}</div>
           <div><div style={{ fontWeight: 700 }}>{user?.name}</div>
-            <div style={{ fontSize: 13, color: "#A9B6CA" }}>{isAdmin ? "Admin" : "Advisor"}</div></div></div>
+            <div className="cap">{isAdmin ? "Admin · all students" : "Advisor"}</div></div></div>
         <nav className="nav" aria-label="Advisor">
+          <div className="ng">STUDENTS</div>
           <NavLink className={nl} to="/staff" end><IUsers />My students</NavLink>
           <NavLink className={nl} to="/staff/onboarding"><IPlus />Onboarding</NavLink>
           <NavLink className={nl} to="/staff/notifications"><IBell />Alerts</NavLink>

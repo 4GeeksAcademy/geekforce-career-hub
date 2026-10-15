@@ -30,7 +30,7 @@ export default function Notifications({ staff }: { staff?: boolean }) {
 
   return (
     <>
-      <header className="top"><div><h1>{staff ? "Alerts" : "Notifications"}</h1><div className="sub">{staff ? "Breaches, inactivity and pause requests from your students." : "Important ones are also sent to your email."}</div></div>
+      <header className="top"><div>{staff && <div className="kick">Students</div>}<h1>{staff ? <>Alerts. <em>What needs you.</em></> : "Notifications"}</h1><div className="sub">{staff ? "Breaches, inactivity and pause requests from your students." : "Important ones are also sent to your email."}</div></div>
         <button className="btn bg" onClick={readAll}>Mark all as read</button></header>
       <div className="content">
         <div className="row" style={{ alignItems: "flex-start" }}>

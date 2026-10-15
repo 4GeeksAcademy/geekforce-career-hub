@@ -103,8 +103,8 @@ export default function StaffStudent() {
 }
 
 function Stat({ l, children }: { l: string; children: React.ReactNode }) {
-  return <div style={{ flex: "1 1 120px", display: "flex", flexDirection: "column", gap: 2, padding: "12px 16px", borderRadius: 12, background: "var(--bg2)" }}>
-    <span className="cap">{l}</span><span style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>{children}</span></div>;
+  return <div style={{ flex: "1 1 120px", display: "flex", flexDirection: "column", gap: 2, padding: "14px 16px", borderRadius: 14, background: "#E9F2FE" }}>
+    <span style={{ fontSize: 11, fontWeight: 800, letterSpacing: ".08em", textTransform: "uppercase", color: "var(--body)" }}>{l}</span><span style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>{children}</span></div>;
 }
 
 function LogSession({ d, scheduledId, scheduledDate, onSaved }: { d: Dashboard; scheduledId?: string; scheduledDate?: string; onSaved: (m: string) => void }) {
