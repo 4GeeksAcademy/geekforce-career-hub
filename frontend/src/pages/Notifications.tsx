@@ -23,7 +23,8 @@ export default function Notifications({ staff }: { staff?: boolean }) {
 
   const open = async (n: Notif) => {
     if (!n.read) await api.patch(`/notifications/${n.id}/read`);
-    if (n.link) nav(n.link); else list.reload();
+    if (n.link?.startsWith("http")) { window.open(n.link, "_blank", "noopener"); list.reload(); }
+    else if (n.link) nav(n.link); else list.reload();
   };
   const readAll = async () => { await api.post("/notifications/read-all"); list.reload(); };
   const toggle = async (key: string, enabled: boolean) => { await api.put("/notifications/preferences", { key, enabled }); prefs.reload(); };

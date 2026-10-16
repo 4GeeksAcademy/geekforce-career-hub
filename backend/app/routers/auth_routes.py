@@ -55,6 +55,31 @@ def change_password(body: PasswordIn, user: User = Depends(current_user), db: Se
     return {"ok": True}
 
 
+class SetPasswordIn(BaseModel):
+    token: str
+    password: str
+
+
+@router.post("/set-password")
+def set_password(body: SetPasswordIn, db: Session = Depends(get_db)):
+    """From the invitation link: choose a password and sign in."""
+    from ..auth import user_from_password_token
+    u = user_from_password_token(db, body.token)
+    if len(body.password) < 8:
+        raise HTTPException(422, "Use at least 8 characters")
+    u.password_hash = hash_password(body.password)
+    u.last_login_at = now_utc()
+    db.commit()
+    return {"token": create_token(u), "user": me_dict(u)}
+
+
+@router.get("/set-password/check")
+def check_password_link(token: str, db: Session = Depends(get_db)):
+    from ..auth import user_from_password_token
+    u = user_from_password_token(db, token)
+    return {"email": u.email, "name": u.name, "has_password": bool(u.password_hash)}
+
+
 class BreathcodeIn(BaseModel):
     token: str
 

@@ -125,6 +125,78 @@ def relation(page: dict, name: str) -> list[str]:
     return [x["id"] for x in _prop(page, name).get("relation") or []]
 
 
+def value(page: dict, name: str):
+    """Any property as a plain Python value (formulas and rollups unwrapped). Missing → None."""
+    p = _prop(page, name)
+    return _unwrap(p) if p else None
+
+
+def _unwrap(p: dict):
+    t = p.get("type")
+    if t is None:
+        return None
+    v = p.get(t)
+    if t in ("title", "rich_text"):
+        return "".join(x.get("plain_text", "") for x in v or []).strip() or None
+    if t in ("select", "status"):
+        return (v or {}).get("name")
+    if t == "multi_select":
+        return [o.get("name", "") for o in v or []]
+    if t in ("number", "checkbox", "email", "url", "phone_number", "string", "boolean"):
+        return v
+    if t == "date":
+        return (v or {}).get("start")
+    if t == "formula":
+        return _unwrap(v or {})
+    if t == "rollup":
+        if (v or {}).get("type") == "array":
+            vals = [_unwrap(x) for x in v.get("array") or []]
+            vals = [x for x in vals if x not in (None, "", [])]
+            return vals[0] if len(vals) == 1 else (vals or None)
+        return _unwrap(v or {})
+    if t == "people":
+        return [x.get("name") for x in v or [] if x.get("name")]
+    return None
+
+
+# Fields copied into the Career Hub. Billing is admin-only; advisors only see payments_behind.
+SNAPSHOT_FIELDS = {
+    "career": ["GeekForce Status", "GeekForce Stages completion", "Advisor", "Enrollment Plan",
+               "Job guarantee status", "JG deadline date", "Days until JG deadline", "Placement Status",
+               "Placement Date", "Company name after placement", "Position after placement",
+               "Starting salary (after placement)", "LinkedIn", "Responsiveness", "Date of last meeting"],
+    "academic": ["Program", "Program Status", "Cohort ID", "% Approved projects", "% CS approved projects",
+                 "CS Absences", "Level", "CS Quality Score", "CS Projects Submitted", "Graduation Date",
+                 "Prework completion"],
+    "billing": ["Payment Status", "Months past due", "Open Balance", "Pending Payments", "Payment Plan",
+                "Monthly Payment", "Date Last Payment", "Billing Status"],
+}
+BEHIND_STATUSES = {"has debt (paying)", "has debt payments", "must pay current month", "pending payment",
+                   "full risk"}
+
+
+def snapshot_from_page(page: dict) -> dict:
+    out = {}
+    for group, names in SNAPSHOT_FIELDS.items():
+        g = {}
+        for n in names:
+            v = value(page, n)
+            if v not in (None, "", []):
+                g[n] = v
+        out[group] = g
+    return out
+
+
+def payments_behind(snapshot: dict) -> bool | None:
+    b = snapshot.get("billing") or {}
+    status = str(b.get("Payment Status") or "").lower()
+    months = b.get("Months past due")
+    jg = " ".join(snapshot.get("career", {}).get("Job guarantee status") or []).lower()
+    if not status and months is None and "pagos" not in jg:
+        return None
+    return bool(status in BEHIND_STATUSES or (isinstance(months, (int, float)) and months > 0) or "pagos" in jg)
+
+
 def map_stage(stages: list[str], placement: str) -> str | None:
     if placement.lower() == "placed":
         return "placed"
@@ -153,6 +225,8 @@ def student_from_page(page: dict) -> dict | None:
         "deadline_date": date_of(page, "JG deadline date"),
         "start_date": date_of(page, "Graduation date CS") or date_of(page, "Completion Date"),
         "tracker_pages": relation(page, "Job hunting tracker"),
+        "snapshot": snapshot_from_page(page),
+        "not_to_be_placed": text(page, "Placement Status").lower() == "not to be placed",
     }
 
 

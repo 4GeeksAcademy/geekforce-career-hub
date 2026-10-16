@@ -14,7 +14,7 @@ ACCENT = {"critical": "#B4232A", "warning": "#7A4E00", "deduction": "#B4232A", "
 
 def render(title: str, body: str, kind: str, link: str | None) -> str:
     color = ACCENT.get(kind, "#0B0B0F")
-    url = f"{settings.app_url.rstrip('/')}{link or '/'}"
+    url = link if (link or "").startswith("http") else f"{settings.app_url.rstrip('/')}{link or '/'}"
     return f"""<!doctype html><html><body style="margin:0;background:#F5F7FA;font-family:Arial,sans-serif;color:#0B0B0F">
 <table width="100%" cellpadding="0" cellspacing="0"><tr><td align="center" style="padding:32px 16px">
 <table width="560" cellpadding="0" cellspacing="0" style="background:#fff;border:1px solid #E6E9EF;border-radius:16px">

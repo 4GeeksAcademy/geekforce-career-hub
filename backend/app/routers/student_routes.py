@@ -202,6 +202,19 @@ def list_sessions(student_id: str, user: User = Depends(current_user), db: Sessi
     return [session_dict(s, db) for s in rows]
 
 
+@router.get("/students/{student_id}/homework")
+def list_homework(student_id: str, status: str = "pending", user: User = Depends(current_user),
+                  db: Session = Depends(get_db)):
+    """Open tasks (from sessions or sent between sessions). Dated ones first, then 'by the next meeting'."""
+    st = student_for(db, user, student_id)
+    q = select(HomeworkTask).where(HomeworkTask.student_id == st.id)
+    if status != "all":
+        q = q.where(HomeworkTask.status == status)
+    rows = db.scalars(q.order_by(HomeworkTask.created_at.desc())).all()
+    rows.sort(key=lambda t: (t.due_date is None, t.due_date or date.max))
+    return [homework_dict(t) for t in rows]
+
+
 @router.patch("/homework/{task_id}/complete")
 def complete_homework(task_id: str, user: User = Depends(current_user), db: Session = Depends(get_db)):
     t = db.get(HomeworkTask, task_id)

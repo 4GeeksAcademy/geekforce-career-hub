@@ -63,6 +63,8 @@ export function StaffLayout() {
           <NavLink className={nl} to="/staff" end><IUsers />My students</NavLink>
           <NavLink className={nl} to="/staff/onboarding"><IPlus />Onboarding</NavLink>
           <NavLink className={nl} to="/staff/notifications"><IBell />Alerts</NavLink>
+          <div className="ng">OPPORTUNITIES</div>
+          <NavLink className={nl} to="/staff/jobs"><IBriefcase />Job Radar</NavLink>
           <div className="ng">MANAGE</div>
           <NavLink className={nl} to="/admin" end><IPause />Pause requests</NavLink>
           {isAdmin && <NavLink className={nl} to="/admin/rules"><ISliders />Rules &amp; points</NavLink>}

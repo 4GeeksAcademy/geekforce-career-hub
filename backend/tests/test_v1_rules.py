@@ -230,8 +230,16 @@ def test_activation_sets_balance_and_invites(client, db, people):
     assert {o["email"] for o in onb} >= {"ana@test.io"}
     r = client.post(f"/api/v1/advisor/students/{ana.id}/activate", headers=h, json={"starting_points": 86})
     assert r.status_code == 200, r.text
-    assert r.json()["temporary_password"] and r.json()["student"]["points"] == 86
-    login = client.post("/api/v1/auth/login", json={"email": "ana@test.io", "password": r.json()["temporary_password"]})
+    link = r.json()["invite_link"]
+    assert "/set-password?token=" in link and r.json()["student"]["points"] == 86
+    token = link.split("token=")[1]
+    assert client.get(f"/api/v1/auth/set-password/check?token={token}").json()["email"] == "ana@test.io"
+    assert client.post("/api/v1/auth/set-password", json={"token": token, "password": "short"}).status_code == 422
+    ok = client.post("/api/v1/auth/set-password", json={"token": token, "password": "a-good-password"})
+    assert ok.status_code == 200 and ok.json()["token"]
+    # single use
+    assert client.post("/api/v1/auth/set-password", json={"token": token, "password": "another-pass"}).status_code == 400
+    login = client.post("/api/v1/auth/login", json={"email": "ana@test.io", "password": "a-good-password"})
     assert login.status_code == 200
     db.expire_all()
     assert db.get(Student, ana.id).status == "active"

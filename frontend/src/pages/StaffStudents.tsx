@@ -68,7 +68,7 @@ export default function StaffStudents() {
             <label><span className="sr">Cohort</span><select className="in" value={cohort} onChange={(e) => setCohort(e.target.value)}>
               <option value="">All cohorts</option>{list.data?.cohorts.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}</select></label>
             <label><span className="sr">Status</span><select className="in" value={status} onChange={(e) => setStatus(e.target.value)}>
-              <option value="">All statuses</option><option value="secured">Secured</option><option value="at_risk">At risk</option><option value="suspended">Suspended</option><option value="paused">On pause</option><option value="hired">Hired</option></select></label>
+              <option value="">All statuses</option><option value="secured">Secured</option><option value="at_risk">At risk</option><option value="suspended">Suspended</option><option value="paused">On pause</option><option value="hired">Hired</option><option value="not_to_be_placed">Not to be placed</option></select></label>
             <label><span className="sr">Search</span><input className="in" type="search" placeholder="Search name" value={q} onChange={(e) => setQ(e.target.value)} /></label>
           </div>
           {list.loading ? <Spinner /> : <ErrorBox error={list.error} />}
@@ -82,7 +82,7 @@ export default function StaffStudents() {
                     <span style={{ whiteSpace: "nowrap" }}>{r.name}<span className="cap" style={{ display: "block", fontWeight: 500 }}>{r.cohort}</span></span></Link></td>
                   <td style={{ whiteSpace: "nowrap" }}><span className="num">{r.points}</span>
                     <span style={{ width: 72, height: 6, borderRadius: 3, background: "var(--line)", display: "inline-block", verticalAlign: "middle", marginLeft: 10, overflow: "hidden" }}><span style={{ display: "block", height: "100%", width: `${r.points}%`, background: statusColor(r.guarantee_status) }} /></span></td>
-                  <td>{r.status === "hired" ? <span className="pill pn">Hired</span> : r.on_hold ? <span className="pill pr">On hold</span> : <StatusPill status={r.guarantee_status} paused={r.paused} />}</td>
+                  <td>{r.status === "hired" ? <span className="pill pn">Hired</span> : r.status === "not_to_be_placed" ? <span className="pill pg">Not to be placed</span> : r.on_hold ? <span className="pill pr">On hold</span> : <StatusPill status={r.guarantee_status} paused={r.paused} />}</td>
                   <td className="cap" style={{ whiteSpace: "nowrap" }}>{r.display_stage ? stageLabel[r.display_stage] : "—"}</td>
                   <td className="num" style={{ color: r.apps_this_week < r.target ? "var(--amber-ink)" : undefined }}>{r.apps_this_week} / {r.target}</td>
                   <td>{r.missed_meetings} / {list.data!.max_missed}</td>

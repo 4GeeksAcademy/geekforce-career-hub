@@ -26,7 +26,7 @@ from .timeutil import aware, local_today, now_utc, tz, week_bounds_utc, week_sta
 # Automatic deductions are frozen while a pause is approved and active.
 AUTO_DEDUCTIONS = {
     "deduction_weekly", "deduction_homework", "deduction_streak", "deduction_linkedin",
-    "deduction_outreach", "deduction_inactivity", "deduction_absence",
+    "deduction_outreach", "deduction_inactivity", "deduction_absence", "deduction_reschedule",
 }
 
 STATUS_LABEL = {"secured": "Secured", "at_risk": "At risk", "suspended": "Suspended"}
@@ -284,6 +284,8 @@ class SessionPlan:
     missed_tasks: list[HomeworkTask] = field(default_factory=list)
     streak_after: int = 0
     missed_meetings_after: int = 0
+    reschedules_after: int = 0
+    effective_attendance: str = ""
     balance_before: int = 0
     balance_after: int = 0
     status_after: str = ""
@@ -296,8 +298,24 @@ def plan_session(db: DB, st: Student, *, session_type: str, attendance: str, ses
     Used both for the advisor's preview and for the actual save, so they can never disagree."""
     r = get_rules(db)
     plan = SessionPlan(streak_after=st.consecutive_homework_misses, missed_meetings_after=st.missed_meetings,
-                       balance_before=st.career_points)
+                       reschedules_after=st.reschedules_used or 0, balance_before=st.career_points)
     paused = is_paused(st)
+    if attendance == "rescheduled":
+        plan.reschedules_after += 1
+        n = plan.reschedules_after
+        allowed = int(r.reschedules_allowed)
+        if n <= allowed:
+            ded = r.ded_reschedule_first if n == 1 else r.ded_reschedule_second
+            ordinal = {1: "1st", 2: "2nd", 3: "3rd"}.get(n, f"{n}th")
+            if not paused:
+                plan.effects.append(Effect("deduction_reschedule", ded, f"{ordinal} reschedule in the program"))
+            left = allowed - n
+            plan.notes.append(f"Reschedule {n} of {allowed} allowed" + (
+                "" if left else ". The next one will count as an absence"))
+        else:
+            attendance = "absent"
+            plan.notes.append(f"Reschedule {n}: past the {allowed} allowed, so it counts as an absence")
+    plan.effective_attendance = attendance
     if attendance == "attended":
         pts = {"one_on_one": r.pts_meeting_attended, "group_workshop": r.pts_session_attended,
                "mock_interview": r.pts_mock_interview}[session_type]
@@ -307,7 +325,7 @@ def plan_session(db: DB, st: Student, *, session_type: str, attendance: str, ses
     elif attendance == "absent":
         plan.missed_meetings_after += 1
         if not paused:
-            plan.effects.append(Effect("deduction_absence", r.ded_session_missed, "Session missed without notice"))
+            plan.effects.append(Effect("deduction_absence", r.ded_session_missed, "Absent from the session"))
         plan.notes.append(f"Counts as {plan.missed_meetings_after} of {r.max_missed_meetings} allowed misses")
 
     if session_type == "one_on_one" and attendance in ("attended", "absent"):
@@ -361,6 +379,7 @@ def log_session(db: DB, st: Student, advisor: User, *, session_type: str, attend
             t.verified_by_advisor = True
     plan = plan_session(db, st, session_type=session_type, attendance=attendance,
                         session_date=session_date, completed_task_ids=completed_task_ids)
+    attendance = plan.effective_attendance or attendance
     sess = Session(student_id=st.id, advisor_id=advisor.id, session_date=session_date, session_type=session_type,
                    attendance=attendance, title=title, summary=summary, resources=resources or [])
     db.add(sess)
@@ -369,13 +388,14 @@ def log_session(db: DB, st: Student, advisor: User, *, session_type: str, attend
         t.status = "missed"
     st.consecutive_homework_misses = plan.streak_after
     st.missed_meetings = plan.missed_meetings_after
+    st.reschedules_used = plan.reschedules_after
     for e in plan.effects:
         award(db, st, e.event_type, e.delta, e.title, source="advisor", source_id=sess.id,
               created_by=advisor.id, r=r, key=f"session:{sess.id}:{e.event_type}:{e.title}"[:160])
     for hw in new_homework:
         db.add(HomeworkTask(session_id=sess.id, student_id=st.id, description=hw["description"],
                             due_date=hw.get("due_date"), point_value=hw.get("point_value") or r.pts_homework))
-    if attendance in ("attended", "excused"):
+    if attendance in ("attended", "excused", "rescheduled"):
         touch(st)
     if attendance == "attended" and session_type == "one_on_one" and (st.on_hold or st.not_started_level):
         st.on_hold, st.not_started_level = False, 0  # first 1:1 done: leaves the Not Started ladder
@@ -383,7 +403,7 @@ def log_session(db: DB, st: Student, advisor: User, *, session_type: str, attend
     # Notifications
     if attendance == "absent" and st.missed_meetings >= r.max_missed_meetings:
         notify_student(db, st, type="critical", category="guarantee", title="Missed-meeting limit reached",
-                       body=f"You've missed {st.missed_meetings} meetings without notice. Your advisor will review "
+                       body=f"You've missed {st.missed_meetings} meetings. Your advisor will review "
                             f"your guarantee status.", link="/advisor")
         alert_advisor(db, st, f"{st.user.name}: {st.missed_meetings} missed meetings",
                       "Missed-meeting limit reached. Review the guarantee status.")
@@ -396,11 +416,21 @@ def log_session(db: DB, st: Student, advisor: User, *, session_type: str, attend
         notify_student(db, st, type="info", category="advisor", pref_key="session_notes",
                        title=f"{advisor.name} added notes" + (f" and {len(new_homework)} homework task(s)" if new_homework else ""),
                        body=(summary or "") + (f"\n\nHomework:\n{hw_lines}" if hw_lines else ""), link="/advisor")
+    allowed = int(r.reschedules_allowed)
     if attendance == "absent":
+        extra = (f" You had already used your {allowed} reschedules, so this one counts as an absence."
+                 if plan.reschedules_after > allowed else "")
         notify_student(db, st, type="deduction", category="deduction",
-                       title=f"{r.ded_session_missed}: session missed without notice",
-                       body=f"This counts as {st.missed_meetings} of your {r.max_missed_meetings} allowed misses. "
-                            "Tell your advisor 24 hours ahead next time and it won't count.", link="/advisor")
+                       title=f"{r.ded_session_missed}: absent from a session",
+                       body=f"This counts as {st.missed_meetings} of your {r.max_missed_meetings} allowed misses.{extra}",
+                       link="/advisor")
+    elif attendance == "rescheduled" and plan.effects:
+        left = allowed - plan.reschedules_after
+        notify_student(db, st, type="deduction", category="deduction",
+                       title=f"{plan.effects[0].delta}: session rescheduled",
+                       body=f"You've used {plan.reschedules_after} of your {allowed} reschedules. " + (
+                           f"You have {left} left." if left else "The next reschedule will count as an absence (−10)."),
+                       link="/advisor")
     return sess, plan
 
 

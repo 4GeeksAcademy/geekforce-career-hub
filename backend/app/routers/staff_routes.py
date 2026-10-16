@@ -136,7 +136,7 @@ class SessionIn(BaseModel):
     student_id: str
     session_date: datetime
     session_type: str = Field(pattern="^(one_on_one|group_workshop|mock_interview)$")
-    attendance: str = Field(pattern="^(attended|excused|absent)$")
+    attendance: str = Field(pattern="^(attended|rescheduled|absent)$")
     title: str | None = None
     summary: str | None = None
     resources: list[dict] = []
@@ -156,6 +156,7 @@ def _plan_dict(plan: engine.SessionPlan) -> dict:
     return {"effects": [{"type": e.event_type, "delta": e.delta, "title": e.title} for e in plan.effects],
             "missed_tasks": [homework_dict(t) for t in plan.missed_tasks],
             "streak_after": plan.streak_after, "missed_meetings_after": plan.missed_meetings_after,
+            "reschedules_after": plan.reschedules_after, "effective_attendance": plan.effective_attendance,
             "balance_before": plan.balance_before, "balance_after": plan.balance_after,
             "status_after": plan.status_after, "notes": plan.notes}
 
@@ -211,6 +212,46 @@ def schedule_session(body: ScheduleIn, user: User = Depends(require_staff), db: 
     engine.touch(st)
     db.commit()
     return session_dict(s)
+
+
+@router.get("/students/{student_id}/notion")
+def student_notion(student_id: str, user: User = Depends(require_staff), db: Session = Depends(get_db)):
+    """Read-only Notion snapshot. Billing amounts are admin-only; advisors get just 'payments OK / behind'."""
+    st = student_for(db, user, student_id)
+    snap = dict(st.notion_snapshot or {})
+    if user.role != "admin":
+        snap.pop("billing", None)
+    return {"connected": bool(st.notion_page_id), "synced_at": st.notion_synced_at.isoformat() if st.notion_synced_at else None,
+            "payments_behind": st.payments_behind, "show_billing": user.role == "admin",
+            "notion_url": f"https://www.notion.so/{st.notion_page_id.replace('-', '')}" if st.notion_page_id else None,
+            **{k: snap.get(k) or {} for k in ("career", "academic", "billing")}}
+
+
+class AssignHomeworkIn(BaseModel):
+    description: str = Field(min_length=3, max_length=2000)
+    due_date: date | None = None  # None = by the next meeting
+    point_value: int | None = Field(default=None, ge=0, le=100)
+
+
+@router.post("/students/{student_id}/homework")
+def assign_homework(student_id: str, body: AssignHomeworkIn, user: User = Depends(require_staff),
+                    db: Session = Depends(get_db)):
+    """Send a task to the student between sessions: due on a date, or by the next 1:1 meeting."""
+    from ..notify import notify_student
+    st = student_for(db, user, student_id)
+    if body.due_date and body.due_date < local_today():
+        raise HTTPException(422, "The due date is in the past")
+    r = get_rules(db)
+    t = HomeworkTask(student_id=st.id, assigned_by=user.id, description=body.description.strip(),
+                     due_date=body.due_date, point_value=body.point_value if body.point_value is not None else r.pts_homework)
+    db.add(t)
+    when = f"by {body.due_date.strftime('%b %-d')}" if body.due_date else "before your next meeting"
+    notify_student(db, st, type="info", category="advisor", pref_key="session_notes",
+                   title=f"New task from {user.name.split()[0]} · due {when}",
+                   body=f"{t.description}\n\nWorth +{t.point_value} points if it's done on time. "
+                        f"If it's still pending at the meeting it costs {r.ded_homework_missed}.", link="/advisor")
+    db.commit()
+    return homework_dict(t)
 
 
 @router.patch("/homework/{task_id}/verify")
@@ -271,16 +312,23 @@ def project(body: ProjectIn, user: User = Depends(require_staff), db: Session = 
 
 
 class StudentStatusIn(BaseModel):
-    status: str = Field(pattern="^(active|hired|withdrawn)$")
+    status: str = Field(pattern="^(active|hired|withdrawn|not_to_be_placed)$")
+    reason: str | None = Field(default=None, max_length=2000)
 
 
 @router.patch("/students/{student_id}/status")
 def set_status(student_id: str, body: StudentStatusIn, user: User = Depends(require_staff),
                db: Session = Depends(get_db)):
     st = student_for(db, user, student_id)
+    reason = (body.reason or "").strip()
+    if body.status == "not_to_be_placed" and len(reason) < 10:
+        raise HTTPException(422, "Add the reason (at least 10 characters). It's kept in the audit log.")
     st.status = body.status
+    st.status_reason = reason or None
+    st.status_changed_at = now_utc()
     from ..models import AuditLog
-    db.add(AuditLog(actor_id=user.id, student_id=st.id, action="student_status", detail=f"Status → {body.status}"))
+    db.add(AuditLog(actor_id=user.id, student_id=st.id, action="student_status",
+                    detail=f"Status → {body.status}" + (f" · {reason}" if reason else "")))
     db.commit()
     return student_brief(st)
 
@@ -327,24 +375,33 @@ def decline(pid: str, body: DecisionIn, user: User = Depends(require_staff), db:
 
 # ── onboarding (students synced from Notion or added manually, waiting for a starting balance) ──
 
-def _invite(db: Session, st: Student, advisor: User) -> str | None:
-    """Give the student sign-in details. Returns the temporary password (shown once to the advisor)."""
-    import secrets
-    from ..auth import hash_password
+def _invite(db: Session, st: Student, advisor: User) -> str:
+    """Send the student a single-use 'set your password' link (ActiveCampaign tag GF Invite, Brevo as fallback).
+    Returns the link so the advisor can also share it directly."""
+    from ..auth import create_password_link_token
     from ..config import settings
+    from ..services import activecampaign as ac
     from ..services.brevo import send_email
     u = st.user
-    temp = None
-    if not u.password_hash:
-        temp = secrets.token_urlsafe(8)
-        u.password_hash = hash_password(temp)
-    body = (f"Hi {u.name.split()[0]},\n\nYour GeekForce Career Hub is ready. Track every application, see your career "
-            f"points and Job Guarantee status, and get your homework from {advisor.name}.\n\n"
-            f"Sign in at {settings.app_url}\nEmail: {u.email}\n" + (f"Temporary password: {temp}\n" if temp else "") +
-            "\nInstall the GeekForce Chrome extension so your applications log themselves (+3 points each).")
-    send_email(u.email, u.name, "Your GeekForce Career Hub is ready", "Welcome to GeekForce Career Hub", body,
-               "info", "/login")
-    return temp
+    link = f"{settings.app_url.rstrip('/')}/set-password?token={create_password_link_token(u)}"
+    if ac.configured():
+        ac.send_invite(u.email, u.name, link, ac.student_fields(st))
+    else:
+        body = (f"Hi {u.name.split()[0]},\n\nYour GeekForce Career Hub is ready. Track every application, see your career "
+                f"points and Job Guarantee status, and get your homework from {advisor.name}.\n\n"
+                f"Choose your password here (the link works once, for 7 days):\n{link}\n\n"
+                "Then install the GeekForce Chrome extension so your applications log themselves (+3 points each).")
+        send_email(u.email, u.name, "Your GeekForce Career Hub is ready", "Welcome to GeekForce Career Hub", body,
+                   "info", link)
+    return link
+
+
+@router.post("/students/{student_id}/invite")
+def resend_invite(student_id: str, user: User = Depends(require_staff), db: Session = Depends(get_db)):
+    st = student_for(db, user, student_id)
+    link = _invite(db, st, user)
+    db.commit()
+    return {"invite_link": link}
 
 
 @router.get("/onboarding")
@@ -378,9 +435,9 @@ def activate(student_id: str, body: ActivateIn, user: User = Depends(require_sta
     if not st.advisor_id:
         st.advisor_id = user.id
     engine.activate_student(db, st, user, body.starting_points, body.note)
-    temp = _invite(db, st, user) if body.send_invite else None
+    link = _invite(db, st, user) if body.send_invite else None
     db.commit()
-    return {"student": student_brief(st), "temporary_password": temp}
+    return {"student": student_brief(st), "invite_link": link}
 
 
 class NewStudentIn(BaseModel):
@@ -409,9 +466,9 @@ def add_student(body: NewStudentIn, user: User = Depends(require_staff), db: Ses
     db.add(st)
     db.flush()
     engine.activate_student(db, st, user, body.starting_points, "Added manually")
-    temp = _invite(db, st, user) if body.send_invite else None
+    link = _invite(db, st, user) if body.send_invite else None
     db.commit()
-    return {"student": student_brief(st), "temporary_password": temp}
+    return {"student": student_brief(st), "invite_link": link}
 
 
 @router.post("/notion/sync")

@@ -239,8 +239,27 @@ def notion_sync(db: DB, today: date | None = None) -> dict:
     return run_sync(db)
 
 
+def job_radar(db: DB) -> dict:
+    from .job_radar import sweep_adzuna
+    return sweep_adzuna(db)
+
+
+def ac_sync(db: DB) -> dict:
+    """Nightly: keep ActiveCampaign fields and status tags current for every student (no emails)."""
+    from .services import activecampaign as ac
+    if not ac.configured():
+        return {"ok": False, "error": "ActiveCampaign isn't connected"}
+    ok = failed = 0
+    for st in db.scalars(select(Student).where(Student.status.in_(["active", "hired"]))).all():
+        if ac.sync_student(st):
+            ok += 1
+        else:
+            failed += 1
+    return {"ok": True, "synced": ok, "failed": failed}
+
+
 JOBS = {"weekly_check": weekly_check, "friday_nudge": friday_nudge, "daily": daily, "reminders": reminders,
-        "notion_sync": notion_sync}
+        "notion_sync": notion_sync, "job_radar": job_radar, "ac_sync": ac_sync}
 
 
 def run_job(name: str) -> dict:
@@ -261,5 +280,9 @@ def start_scheduler():
     from .config import settings
     if settings.notion_token:
         sched.add_job(run_job, CronTrigger(hour=0, minute=30), args=["notion_sync"], id="notion_sync")
+    if settings.adzuna_app_id and settings.adzuna_app_key:
+        sched.add_job(run_job, CronTrigger(hour=10, minute=0), args=["job_radar"], id="job_radar")
+    if settings.ac_url and settings.ac_key:
+        sched.add_job(run_job, CronTrigger(hour=2, minute=0), args=["ac_sync"], id="ac_sync")
     sched.start()
     return sched

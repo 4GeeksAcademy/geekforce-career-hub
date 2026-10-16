@@ -1,4 +1,5 @@
 """Application settings, read from environment variables (Railway service variables in production)."""
+from pydantic import AliasChoices, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -17,7 +18,17 @@ class Settings(BaseSettings):
     enable_scheduler: bool = False  # run the in-process scheduler (enable on exactly ONE service replica)
     cron_secret: str = ""  # required header X-Cron-Secret for POST /api/v1/cron/{job}
 
-    # Brevo (email)
+    # ActiveCampaign (email channel). Accepts the names already used by Lali and the Marketing Hub.
+    ac_url: str = Field("", validation_alias=AliasChoices("ACTIVECAMPAIGN_URL", "AC_API_URL", "AC_URL"))
+    ac_key: str = Field("", validation_alias=AliasChoices("ACTIVECAMPAIGN_API_KEY", "AC_API_KEY", "AC_KEY"))
+
+    # Job Radar
+    adzuna_app_id: str = ""
+    adzuna_app_key: str = ""
+    adzuna_country: str = "us"
+    jobs_ingest_secret: str = ""  # header X-Jobs-Secret for POST /api/v1/integrations/jobs (grokbot)
+
+    # Brevo (email fallback, only used when ActiveCampaign isn't configured)
     brevo_api_key: str = ""
     brevo_sender_email: str = "geekforce@4geeksacademy.com"
     brevo_sender_name: str = "GeekForce Career Hub"

@@ -43,13 +43,19 @@ export function AdminPauses() {
           <div style={{ display: "flex", gap: 16, flexWrap: "wrap" }}>{integ.data?.map((i) => (
             <div key={i.key} style={{ flex: "1 1 230px", border: "1px solid var(--line)", borderRadius: 14, padding: 18, display: "flex", flexDirection: "column", gap: 8, background: i.connected ? "#fff" : "var(--bg2)" }}>
               <div className="between"><strong>{i.name}</strong><span className={`pill ${i.connected ? "pb" : "pg"}`}>{i.connected ? "Connected" : i.key === "breathcode" ? "Phase 2" : "Not set up"}</span></div>
-              <div className="cap">{i.detail}</div></div>))}</div>
+              <div className="cap">{i.detail}</div>
+              {i.key === "activecampaign" && i.connected && user?.role === "admin" &&
+                <button className="btn bg sm" style={{ alignSelf: "flex-start" }} onClick={async () => {
+                  try { const r = await api.post<{ fields: string[]; tags: string[] }>("/admin/integrations/activecampaign/setup");
+                    toast(`Ready in ActiveCampaign: ${r.fields.length} fields, ${r.tags.length} tags`); }
+                  catch (e) { toast(e instanceof Error ? e.message : "Setup failed"); } }}>Create fields &amp; tags</button>}
+            </div>))}</div>
         </section>
         {user?.role === "admin" && <section className="card stack">
           <h2 className="h2">Scheduled checks</h2>
           <p className="cap">These run automatically (Mon 6:00 weekly check, Fri 17:00 nudge, daily 1:00 checks, 9:00 reminders). Run one now if needed; they never double-charge.</p>
-          <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>{["daily", "reminders", "friday_nudge", "weekly_check"].map((j) =>
-            <button key={j} className="btn bg sm" onClick={() => runJob(j)}>Run {j.replace("_", " ")}</button>)}</div>
+          <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>{["daily", "reminders", "friday_nudge", "weekly_check", "notion_sync", "job_radar", "ac_sync"].map((j) =>
+            <button key={j} className="btn bg sm" onClick={() => runJob(j)}>Run {j.replace(/_/g, " ")}</button>)}</div>
         </section>}
       </div>
     </>);

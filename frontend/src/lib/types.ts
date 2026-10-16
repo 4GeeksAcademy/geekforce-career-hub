@@ -4,9 +4,11 @@ export type GStatus = "secured" | "at_risk" | "suspended" | "not_eligible";
 export interface StudentBrief {
   id: string; name: string; email: string; initials: string; cohort: string | null; program: string | null;
   location: string | null; region: string | null; advisor: string | null; advisor_id: string | null;
-  points: number; guarantee_status: GStatus; status: "active" | "hired" | "withdrawn"; paused: boolean;
+  points: number; guarantee_status: GStatus; status: "onboarding" | "active" | "hired" | "withdrawn" | "not_to_be_placed"; paused: boolean;
   paused_until: string | null; on_hold: boolean; stage: string | null;
   enrollment_plan: "job_guarantee" | "professional_support" | null; suspended_at: string | null; from_notion: boolean;
+  reschedules_used?: number; missed_meetings?: number; payments_behind?: boolean | null;
+  status_reason?: string | null; status_changed_at?: string | null;
 }
 export interface Me { id: string; email: string; name: string; initials: string; role: Role; student: StudentBrief | null }
 
@@ -15,12 +17,12 @@ export interface PointsEvent {
   source: string; note: string | null; created_at: string;
 }
 export interface Homework {
-  id: string; session_id: string; description: string; due_date: string | null; point_value: number;
+  id: string; session_id: string | null; description: string; due_date: string | null; due_by_next_meeting?: boolean; point_value: number;
   status: "pending" | "completed" | "missed"; completed_at: string | null; verified_by_advisor: boolean;
 }
 export interface SessionRec {
   id: string; session_date: string; session_type: "one_on_one" | "group_workshop" | "mock_interview";
-  attendance: "attended" | "excused" | "absent" | "scheduled"; title: string | null; summary: string | null;
+  attendance: "attended" | "excused" | "rescheduled" | "absent" | "scheduled"; title: string | null; summary: string | null;
   resources: { label: string; url: string }[]; advisor: string | null; points: number | null; homework: Homework[];
 }
 export interface Condition { key: string; title: string; detail: string; ok: boolean; badge: string | null }

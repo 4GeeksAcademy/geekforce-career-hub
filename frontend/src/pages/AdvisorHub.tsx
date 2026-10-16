@@ -2,7 +2,7 @@ import { useState } from "react";
 import { api } from "../lib/api";
 import { useAuth } from "../lib/auth";
 import { useApi } from "../lib/useApi";
-import type { Interaction, SessionRec } from "../lib/types";
+import type { Homework, Interaction, SessionRec } from "../lib/types";
 import { channelLabel, fmtDate, relTime, sessionType, signed } from "../lib/format";
 import { ErrorBox, Spinner, useToast } from "../components/ui";
 import { ICal, IX } from "../components/Icons";
@@ -10,6 +10,7 @@ import { ICal, IX } from "../components/Icons";
 export default function AdvisorHub() {
   const { data, error, loading, reload } = useApi<SessionRec[]>("/students/me/sessions");
   const notes = useApi<Interaction[]>("/students/me/interactions");
+  const tasks = useApi<Homework[]>("/students/me/homework");
   const { refresh } = useAuth();
   const toast = useToast();
   const [open, setOpen] = useState<Record<string, boolean>>({});
@@ -23,7 +24,7 @@ export default function AdvisorHub() {
 
   const complete = async (id: string, pts: number) => {
     await api.patch(`/homework/${id}/complete`);
-    toast(`Homework done · +${pts}`); reload(); refresh();
+    toast(`Homework done · +${pts}`); reload(); tasks.reload(); refresh();
   };
 
   return (
@@ -43,9 +44,22 @@ export default function AdvisorHub() {
           </section>
           <section className="card stack" style={{ flex: "1 1 280px", background: "var(--bg2)", gap: 8 }}>
             <div style={{ fontWeight: 800 }}>Can't make it?</div>
-            <p className="cap" style={{ fontSize: 14 }}>Tell your advisor at least 24 hours before. Excused absences cost no points and don't count toward your allowed misses.</p>
+            <p className="cap" style={{ fontSize: 14 }}>Ask your advisor to reschedule. You can reschedule twice in the program: the first costs 2 points, the second 5. After that a missed meeting counts as an absence (−10 and one of your 3 allowed misses).</p>
           </section>
         </div>
+
+        {tasks.data && tasks.data.length > 0 && (
+          <section className="card stack" style={{ gap: 10 }}>
+            <div className="between"><h2 className="h2">Your tasks</h2><span className="cap">{tasks.data.length} open</span></div>
+            {tasks.data.map((t) => (
+              <label key={t.id} className="hw">
+                <input type="checkbox" onChange={() => complete(t.id, t.point_value)} />
+                <span style={{ flex: 1 }}>{t.description}
+                  <span className="cap" style={{ display: "block" }}>{t.due_date ? `Due ${fmtDate(t.due_date, { weekday: "short", month: "short", day: "numeric" })}` : "Due before your next meeting"}</span></span>
+                <span className="pill pa">+{t.point_value}</span>
+              </label>))}
+            <div className="cap">Tick a task when it's done. Anything still open at your next 1:1 costs 15 points.</div>
+          </section>)}
 
         {notes.data && notes.data.length > 0 && (
           <section className="card stack" style={{ gap: 6 }}>
@@ -63,7 +77,7 @@ export default function AdvisorHub() {
                 <span style={{ color: missed ? "var(--red-ink)" : "var(--blue-deep)" }}><ICal size={22} /></span>
                 <div style={{ flex: "1 1 260px" }}>
                   <h2 className="h2">{s.title || sessionType[s.session_type]} · {fmtDate(s.session_date, { weekday: "long", month: "short", day: "numeric" })}</h2>
-                  <div className="cap">{s.advisor ? `With ${s.advisor} · ` : ""}{missed ? "missed without notice" : s.attendance === "excused" ? "excused absence" : "attended"}
+                  <div className="cap">{s.advisor ? `With ${s.advisor} · ` : ""}{missed ? "absent" : s.attendance === "excused" || s.attendance === "rescheduled" ? "rescheduled" : "attended"}
                     {s.homework.length ? ` · ${s.homework.length} homework task${s.homework.length > 1 ? "s" : ""}` : ""}</div>
                 </div>
                 {s.points != null && s.points !== 0 && <span className={`pill ${s.points < 0 ? "pr" : "pb"}`}>{signed(s.points)}{s.points > 0 ? " earned" : ""}</span>}

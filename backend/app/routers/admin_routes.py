@@ -1,6 +1,6 @@
 """Admin endpoints: rules, users, cohorts, audit log, integration status, scheduled jobs."""
 import secrets
-from datetime import date
+from datetime import date, timedelta
 
 from fastapi import APIRouter, Depends, Header, HTTPException
 from pydantic import BaseModel, EmailStr
@@ -62,9 +62,22 @@ def integrations(user: User = Depends(require_staff), db: Session = Depends(get_
     emails = db.scalar(select(func.count(Notification.id)).where(
         Notification.email_sent.is_(True), Notification.created_at >= month_start)) or 0
     analyses = db.scalar(select(func.count(ResumeVersion.id)).where(ResumeVersion.created_at >= month_start)) or 0
+    from ..models import Job, SyncRun
+    ac_on = bool(settings.ac_url and settings.ac_key)
+    jobs_week = db.scalar(select(func.count(Job.id)).where(Job.created_at >= date.today() - timedelta(days=7))) or 0
+    last_sync = db.scalar(select(SyncRun).order_by(SyncRun.created_at.desc()))
     return [
-        {"key": "brevo", "name": "Brevo", "connected": bool(settings.brevo_api_key),
-         "detail": f"{emails} emails sent this month" if settings.brevo_api_key else "Add BREVO_API_KEY to send emails"},
+        {"key": "activecampaign", "name": "ActiveCampaign", "connected": ac_on,
+         "detail": f"{emails} alert emails this month · automation on tag “GF Alert”" if ac_on
+                   else "Add ACTIVECAMPAIGN_URL and ACTIVECAMPAIGN_API_KEY to send emails"},
+        {"key": "notion", "name": "Notion", "connected": bool(settings.notion_token),
+         "detail": (f"Last sync {last_sync.created_at:%b %-d, %-I:%M %p} UTC" if last_sync else "Syncs nightly at 12:30 AM")
+                   if settings.notion_token else "Add NOTION_TOKEN to sync the Student Tracker"},
+        {"key": "adzuna", "name": "Adzuna (Job Radar)", "connected": bool(settings.adzuna_app_id and settings.adzuna_app_key),
+         "detail": f"{jobs_week} jobs found in the last 7 days · daily at 10:00 AM ET"},
+        {"key": "grokbot", "name": "grokbot inbox", "connected": bool(settings.jobs_ingest_secret),
+         "detail": "POST /api/v1/integrations/jobs with header X-Jobs-Secret" if settings.jobs_ingest_secret
+                   else "Add JOBS_INGEST_SECRET to receive jobs from grokbot"},
         {"key": "claude", "name": "Claude API", "connected": bool(settings.anthropic_api_key),
          "detail": f"{analyses} resume analyses this month" if settings.anthropic_api_key else "Add ANTHROPIC_API_KEY for the resume builder"},
         {"key": "extension", "name": "Chrome extension", "connected": True,
@@ -73,6 +86,21 @@ def integrations(user: User = Depends(require_staff), db: Session = Depends(get_
          "detail": "4Geeks login and attendance sync" if settings.breathcode_enabled else
                    "Phase 2. Until then advisors mark attendance here."},
     ]
+
+
+@router.post("/integrations/activecampaign/setup")
+def ac_setup(user: User = Depends(require_admin)):
+    """Create the GeekForce custom fields and tags in ActiveCampaign so the team can build the automations."""
+    from ..services import activecampaign as ac
+    if not ac.configured():
+        raise HTTPException(400, "ActiveCampaign isn't connected")
+    try:
+        client = ac.AC()
+        fields = client.field_ids()
+        tags = [client.tag_id(t) and t for t in [ac.ALERT_TAG, ac.INVITE_TAG, *ac.STATUS_TAGS.values()]]
+    except Exception as e:  # noqa: BLE001
+        raise HTTPException(502, f"ActiveCampaign said: {e}")
+    return {"ok": True, "fields": sorted(fields), "tags": tags}
 
 
 # ── users & cohorts ──

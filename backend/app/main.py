@@ -10,7 +10,7 @@ from fastapi.staticfiles import StaticFiles
 
 from .config import settings
 from .db import Base, SessionLocal, engine
-from .routers import admin_routes, auth_routes, staff_routes, student_routes
+from .routers import admin_routes, auth_routes, jobs_routes, staff_routes, student_routes
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 log = logging.getLogger("geekforce")
@@ -44,7 +44,7 @@ app.add_middleware(CORSMiddleware, allow_origins=origins or ["*"], allow_origin_
                    allow_credentials=False, allow_methods=["*"], allow_headers=["*"])
 
 API = "/api/v1"
-for r in (auth_routes.router, student_routes.router, staff_routes.router, admin_routes.router,
+for r in (auth_routes.router, student_routes.router, staff_routes.router, jobs_routes.router, admin_routes.router,
           admin_routes.cron_router):
     app.include_router(r, prefix=API)
 

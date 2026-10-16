@@ -40,7 +40,8 @@ def activity_dict(a: ActivityLog) -> dict:
 
 def homework_dict(t: HomeworkTask) -> dict:
     return {"id": t.id, "session_id": t.session_id, "description": t.description,
-            "due_date": t.due_date.isoformat() if t.due_date else None, "point_value": t.point_value,
+            "due_date": t.due_date.isoformat() if t.due_date else None, "due_by_next_meeting": t.due_date is None,
+            "point_value": t.point_value,
             "status": t.status, "completed_at": iso(t.completed_at), "verified_by_advisor": t.verified_by_advisor}
 
 
@@ -95,7 +96,10 @@ def student_brief(st: Student) -> dict:
             "points": st.career_points, "guarantee_status": st.guarantee_status, "status": st.status,
             "paused": is_paused(st), "paused_until": st.paused_until.isoformat() if st.paused_until else None,
             "on_hold": st.on_hold, "stage": st.stage, "enrollment_plan": st.enrollment_plan,
-            "suspended_at": iso(st.suspended_at), "from_notion": bool(st.notion_page_id)}
+            "suspended_at": iso(st.suspended_at), "from_notion": bool(st.notion_page_id),
+            "reschedules_used": st.reschedules_used or 0, "missed_meetings": st.missed_meetings,
+            "payments_behind": st.payments_behind, "status_reason": st.status_reason,
+            "status_changed_at": iso(st.status_changed_at)}
 
 
 def _last(db, model_col, *where):

@@ -61,11 +61,15 @@ class Student(TimestampMixin, Base):
     career_points: Mapped[int] = mapped_column(Integer, default=80)
     # secured | at_risk | suspended | not_eligible
     guarantee_status: Mapped[str] = mapped_column(String(20), default="secured")
-    status: Mapped[str] = mapped_column(String(20), default="active")  # onboarding | active | hired | withdrawn
+    # onboarding | active | hired | withdrawn | not_to_be_placed (checks frozen, out of job matching)
+    status: Mapped[str] = mapped_column(String(20), default="active")
+    status_reason: Mapped[str | None] = mapped_column(Text)
+    status_changed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     suspended_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))  # suspension is permanent
 
     consecutive_homework_misses: Mapped[int] = mapped_column(Integer, default=0)
     missed_meetings: Mapped[int] = mapped_column(Integer, default=0)
+    reschedules_used: Mapped[int] = mapped_column(Integer, default=0)  # whole program; past the allowed ones = absent
 
     job_search_start_date: Mapped[date | None] = mapped_column(Date)
     deadline_days: Mapped[int | None] = mapped_column(Integer)  # overrides cohort / default
@@ -84,6 +88,11 @@ class Student(TimestampMixin, Base):
     pauses_used: Mapped[int] = mapped_column(Integer, default=0)
 
     last_activity_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+    # Read-only copy of selected Notion fields: {"career": {...}, "academic": {...}, "billing": {...}}
+    notion_snapshot: Mapped[dict | None] = mapped_column(JSON)
+    notion_synced_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    payments_behind: Mapped[bool | None] = mapped_column(Boolean)  # derived from Notion billing; advisors see only this
 
     user: Mapped[User] = relationship(back_populates="student", foreign_keys=[user_id])
     advisor: Mapped[User | None] = relationship(foreign_keys=[advisor_id])
@@ -168,7 +177,7 @@ class Session(TimestampMixin, Base):
     advisor_id: Mapped[str | None] = mapped_column(ForeignKey("users.id"))
     session_date: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     session_type: Mapped[str] = mapped_column(String(20))  # one_on_one | group_workshop | mock_interview
-    attendance: Mapped[str] = mapped_column(String(20))  # attended | excused | absent | scheduled
+    attendance: Mapped[str] = mapped_column(String(20))  # attended | rescheduled | absent | scheduled (excused = legacy)
     title: Mapped[str | None] = mapped_column(String(255))
     summary: Mapped[str | None] = mapped_column(Text)
     resources: Mapped[list] = mapped_column(JSON, default=list)
@@ -179,16 +188,17 @@ class Session(TimestampMixin, Base):
 class HomeworkTask(TimestampMixin, Base):
     __tablename__ = "homework_tasks"
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
-    session_id: Mapped[str] = mapped_column(ForeignKey("sessions.id"))
+    session_id: Mapped[str | None] = mapped_column(ForeignKey("sessions.id"))  # None = assigned outside a session
     student_id: Mapped[str] = mapped_column(ForeignKey("students.id"), index=True)
+    assigned_by: Mapped[str | None] = mapped_column(ForeignKey("users.id"))
     description: Mapped[str] = mapped_column(Text)
-    due_date: Mapped[date | None] = mapped_column(Date)
+    due_date: Mapped[date | None] = mapped_column(Date)  # None = due by the next 1:1 meeting
     point_value: Mapped[int] = mapped_column(Integer, default=15)
     status: Mapped[str] = mapped_column(String(20), default="pending")  # pending | completed | missed
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     verified_by_advisor: Mapped[bool] = mapped_column(Boolean, default=False)
     reminder_sent: Mapped[bool] = mapped_column(Boolean, default=False)
-    session: Mapped[Session] = relationship(back_populates="homework")
+    session: Mapped[Session | None] = relationship(back_populates="homework")
 
 
 class Notification(TimestampMixin, Base):
@@ -199,7 +209,7 @@ class Notification(TimestampMixin, Base):
     category: Mapped[str] = mapped_column(String(40))  # guarantee | deduction | advisor | reminder | session | pause
     title: Mapped[str] = mapped_column(String(255))
     body: Mapped[str] = mapped_column(Text)
-    link: Mapped[str | None] = mapped_column(String(255))
+    link: Mapped[str | None] = mapped_column(String(1000))
     read: Mapped[bool] = mapped_column(Boolean, default=False)
     email_sent: Mapped[bool] = mapped_column(Boolean, default=False)
 
@@ -283,3 +293,32 @@ class SyncRun(TimestampMixin, Base):
     ok: Mapped[bool] = mapped_column(Boolean, default=True)
     summary: Mapped[dict] = mapped_column(JSON)
     triggered_by: Mapped[str | None] = mapped_column(ForeignKey("users.id"))
+
+
+class Job(TimestampMixin, Base):
+    """An open opportunity (Job Radar): from Adzuna, grokbot, partners or added by hand."""
+    __tablename__ = "jobs"
+    __table_args__ = (UniqueConstraint("source", "external_id", name="uq_job_source_ext"),)
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    source: Mapped[str] = mapped_column(String(30))  # adzuna | grokbot | partner | manual
+    external_id: Mapped[str] = mapped_column(String(255))
+    url_key: Mapped[str | None] = mapped_column(String(500), index=True)  # normalized URL for cross-source dedupe
+    title: Mapped[str] = mapped_column(String(255))
+    company: Mapped[str | None] = mapped_column(String(255))
+    location: Mapped[str | None] = mapped_column(String(255))
+    work_mode: Mapped[str | None] = mapped_column(String(20))  # remote | hybrid | onsite
+    url: Mapped[str | None] = mapped_column(String(1000))
+    description: Mapped[str | None] = mapped_column(Text)
+    program: Mapped[str | None] = mapped_column(String(30))  # full_stack | ai_engineering | data_science | cybersecurity
+    posted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    salary_min: Mapped[int | None] = mapped_column(Integer)
+    salary_max: Mapped[int | None] = mapped_column(Integer)
+    # outreach to the employer (grokbot or the team)
+    contact_name: Mapped[str | None] = mapped_column(String(255))
+    contact_handle: Mapped[str | None] = mapped_column(String(255))  # email, X handle or LinkedIn
+    outreach_status: Mapped[str] = mapped_column(String(20), default="none")  # none | contacted | replied | interviewing | closed
+    is_partner: Mapped[bool] = mapped_column(Boolean, default=False)
+    notes: Mapped[str | None] = mapped_column(Text)
+    active: Mapped[bool] = mapped_column(Boolean, default=True)
+    shared_count: Mapped[int] = mapped_column(Integer, default=0)
+    raw: Mapped[dict | None] = mapped_column(JSON)

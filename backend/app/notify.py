@@ -1,4 +1,4 @@
-"""In-app notifications + email via Brevo.
+"""In-app notifications + email (ActiveCampaign automation; Brevo as fallback).
 
 Guarantee-related notifications are locked (students cannot opt out). Emails are queued on the DB session
 and sent only after the transaction commits, in a background thread.
@@ -10,6 +10,7 @@ from sqlalchemy import event, select
 from sqlalchemy.orm import Session
 
 from .models import Notification, NotificationPreference, Student, User
+from .services import activecampaign as ac
 from .services.brevo import send_email
 
 log = logging.getLogger("geekforce.notify")
@@ -46,8 +47,9 @@ def notify_user(db: Session, user: User, *, type: str, category: str, title: str
     n = Notification(user_id=user.id, type=type, category=category, title=title, body=body, link=link)
     db.add(n)
     if email:
+        st = user.student if user.role == "student" else None
         db.info.setdefault("pending_emails", []).append(
-            (n, user.email, user.name, title, body, type, link))
+            (n, user.email, user.name, title, body, type, link, ac.student_fields(st), ac.status_key(st)))
     return n
 
 
@@ -64,8 +66,10 @@ def alert_advisor(db: Session, student: Student, title: str, body: str, link: st
 def _send(items):
     from .db import SessionLocal
     sent_ids = []
-    for n, to, name, title, body, kind, link in items:
-        if send_email(to, name, title, title, body, kind, link):
+    for n, to, name, title, body, kind, link, fields, status in items:
+        ok = ac.send_alert(to, name, title, body, link, fields, status) if ac.configured() \
+            else send_email(to, name, title, title, body, kind, link)
+        if ok:
             sent_ids.append(n.id)
     if sent_ids:
         with SessionLocal() as s:

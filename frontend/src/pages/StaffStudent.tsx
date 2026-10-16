@@ -9,7 +9,10 @@ import { ErrorBox, Modal, Spinner, StatusPill, useToast } from "../components/ui
 import { IBack } from "../components/Icons";
 
 type Preview = { effects: { type: string; delta: number; title: string }[]; balance_before: number; balance_after: number;
-  status_after: string; streak_after: number; missed_meetings_after: number; notes: string[]; emails: string[] };
+  status_after: string; streak_after: number; missed_meetings_after: number; reschedules_after: number;
+  effective_attendance: string; notes: string[]; emails: string[] };
+type NotionSnap = { connected: boolean; synced_at: string | null; payments_behind: boolean | null; show_billing: boolean;
+  notion_url: string | null; career: Record<string, unknown>; academic: Record<string, unknown>; billing: Record<string, unknown> };
 
 const localInput = (d: Date) => new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
 
@@ -21,6 +24,7 @@ export default function StaffStudent() {
   const apps = useApi<{ items: AppItem[] }>(`/students/${id}/applications?status=offer`);
   const toast = useToast();
   const reload = () => { dash.reload(); sessions.reload(); points.reload(); apps.reload(); };
+  const [ntbp, setNtbp] = useState(false);
 
   if (dash.loading) return <Spinner />;
   const d = dash.data;
@@ -39,11 +43,16 @@ export default function StaffStudent() {
         <Link to="/staff" style={{ display: "inline-flex", alignItems: "center", gap: 8, fontWeight: 700, minHeight: 44 }}><IBack size={18} />My students</Link>
         <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
           <a className="btn bg" href={`mailto:${st.email}`}>Email {st.name.split(" ")[0]}</a>
-          {st.status === "active" ? <button className="btn bg" onClick={() => setStatus("hired")}>Mark as hired</button>
+          {st.status === "active" ? <>
+            <button className="btn bg" onClick={() => setNtbp(true)}>Not to be placed</button>
+            <button className="btn bg" onClick={() => setStatus("hired")}>Mark as hired</button></>
             : <button className="btn bg" onClick={() => setStatus("active")}>Reactivate</button>}
         </div>
       </header>
+      {ntbp && <NotToBePlaced studentId={st.id} name={st.name} onClose={() => setNtbp(false)} onDone={(m) => { setNtbp(false); toast(m); reload(); }} />}
       <div className="content">
+        {st.status === "not_to_be_placed" && <div className="strip" role="status"><b>Not to be placed.</b>
+          <span>{st.status_reason}{st.status_changed_at ? ` · since ${fmtDate(st.status_changed_at, { month: "short", day: "numeric", year: "numeric" })}` : ""}. Weekly checks are frozen and {st.name.split(" ")[0]} is left out of job matching.</span></div>}
         <section className="card row" style={{ alignItems: "center" }}>
           <div style={{ display: "flex", gap: 16, alignItems: "center", flex: "1 1 300px" }}>
             <div className="av" style={{ width: 60, height: 60, fontSize: 20 }}>{st.initials}</div>
@@ -60,6 +69,7 @@ export default function StaffStudent() {
             <Stat l="Points"><span className="num" style={{ fontSize: 24, color: statusNum(d.status) }}>{d.points}</span> <StatusPill status={d.status} paused={d.pause.active} /></Stat>
             <Stat l="Apps this week"><span className="num" style={{ fontSize: 24 }}>{d.week.applications} / {d.week.target}</span></Stat>
             <Stat l="Missed meetings"><span className="num" style={{ fontSize: 24 }}>{d.missed_meetings} / {d.max_missed_meetings}</span></Stat>
+            <Stat l="Reschedules used"><span className="num" style={{ fontSize: 24 }}>{st.reschedules_used ?? 0} / 2</span></Stat>
             <Stat l="Homework streak"><span className="num" style={{ fontSize: 24 }}>{d.homework_streak ? `${d.homework_streak} miss` : "Clear"}</span></Stat>
             <Stat l="Deadline"><span className="num" style={{ fontSize: 18 }}>{fmtDate(d.deadline.deadline, { month: "short", day: "numeric", year: "numeric" })}</span></Stat>
           </div>
@@ -69,6 +79,7 @@ export default function StaffStudent() {
           <LogSession d={d} scheduledId={scheduled?.id} scheduledDate={scheduled?.session_date} onSaved={(m) => { toast(m); reload(); }} />
           <div style={{ flex: "1 1 320px", display: "flex", flexDirection: "column", gap: 24, minWidth: 0 }}>
             <Schedule studentId={st.id} scheduled={scheduled} onDone={(m) => { toast(m); reload(); }} />
+            <AssignTask studentId={st.id} first={st.name.split(" ")[0]} onDone={(m) => { toast(m); reload(); }} />
             <Adjust studentId={st.id} onDone={(m) => { toast(m); reload(); }} />
             <Offer studentId={st.id} offers={apps.data?.items || []} onDone={(m) => { toast(m); reload(); }} />
             <Project studentId={st.id} onDone={(m) => { toast(m); reload(); }} />
@@ -81,6 +92,7 @@ export default function StaffStudent() {
           </div>
         </div>
 
+        <FromNotion studentId={st.id} />
         {d.status === "suspended" && <Reinstate studentId={st.id} since={st.suspended_at} onDone={(m) => { toast(m); reload(); }} />}
         <div className="row" style={{ alignItems: "flex-start" }}>
           <Interactions studentId={st.id} />
@@ -92,7 +104,7 @@ export default function StaffStudent() {
           {sessions.data?.filter((s) => s.attendance !== "scheduled").map((s) => (
             <div key={s.id} style={{ borderBottom: "1px solid var(--line-soft)", padding: "12px 0" }}>
               <div className="between"><strong>{s.title || sessionType[s.session_type]} · {fmtDate(s.session_date, { weekday: "short", month: "short", day: "numeric" })}</strong>
-                <span className={`pill ${s.attendance === "absent" ? "pr" : s.attendance === "excused" ? "pg" : "pb"}`}>{s.attendance}{s.points ? ` · ${signed(s.points)}` : ""}</span></div>
+                <span className={`pill ${s.attendance === "absent" ? "pr" : s.attendance === "excused" || s.attendance === "rescheduled" ? "pa" : "pb"}`}>{s.attendance === "excused" ? "rescheduled" : s.attendance}{s.points ? ` · ${signed(s.points)}` : ""}</span></div>
               {s.summary && <p className="cap" style={{ fontSize: 14, marginTop: 4 }}>{s.summary}</p>}
               {s.homework.length > 0 && <div className="cap" style={{ marginTop: 4 }}>Homework: {s.homework.map((h) => `${h.description} (${h.status})`).join(" · ")}</div>}
             </div>))}
@@ -157,7 +169,7 @@ function LogSession({ d, scheduledId, scheduledDate, onSaved }: { d: Dashboard; 
       <fieldset style={{ border: "none", padding: 0, margin: 0 }}>
         <legend className="lb">Attendance</legend>
         <div className="seg" role="radiogroup">
-          {[["attended", "Attended"], ["excused", "Absent, notified 24h+"], ["absent", "Absent, no notice"]].map(([v, l]) =>
+          {[["attended", "Attended"], ["rescheduled", `Rescheduled (${d.student.reschedules_used ?? 0} of 2 used)`], ["absent", "Absent"]].map(([v, l]) =>
             <button type="button" key={v} role="radio" aria-checked={att === v} className={att === v ? "on" : ""} onClick={() => setAtt(v)}>{l}</button>)}
         </div>
       </fieldset>
@@ -198,7 +210,7 @@ function LogSession({ d, scheduledId, scheduledDate, onSaved }: { d: Dashboard; 
           {preview.effects.map((e, i) => <div key={i} style={{ display: "flex", justifyContent: "space-between", gap: 12, padding: "8px 0", fontSize: 14, borderBottom: "1px dashed var(--blue-line)" }}>
             <span>{e.title}</span><strong className={e.delta < 0 ? "neg" : "pos"}>{signed(e.delta)}</strong></div>)}
           {preview.notes.map((n) => <div key={n} style={{ fontSize: 14, padding: "8px 0", borderBottom: "1px dashed var(--blue-line)" }}>{n}</div>)}
-          {preview.emails.map((n) => <div key={n} style={{ display: "flex", justifyContent: "space-between", fontSize: 14, padding: "8px 0", borderBottom: "1px dashed var(--blue-line)" }}><span>Email: {n}</span><strong>Brevo</strong></div>)}
+          {preview.emails.map((n) => <div key={n} style={{ display: "flex", justifyContent: "space-between", fontSize: 14, padding: "8px 0", borderBottom: "1px dashed var(--blue-line)" }}><span>Email: {n}</span><strong>ActiveCampaign</strong></div>)}
           <div style={{ display: "flex", justifyContent: "space-between", fontWeight: 800, paddingTop: 8 }}><span>Balance</span>
             <span>{preview.balance_before} → {preview.balance_after} · {statusLabel[preview.status_after] || preview.status_after}</span></div>
           {preview.status_after === "suspended" && d.status !== "suspended" && d.status !== "not_eligible" &&
@@ -392,5 +404,82 @@ function Reinstate({ studentId, since, onDone }: { studentId: string; since: str
         <ErrorBox error={err} />
         <button className="btn bp">Reinstate</button>
       </form></Modal>}
+  </section>;
+}
+
+function NotToBePlaced({ studentId, name, onClose, onDone }: { studentId: string; name: string; onClose: () => void; onDone: (m: string) => void }) {
+  const [reason, setReason] = useState("");
+  const [err, setErr] = useState<unknown>(null);
+  const save = async (e: FormEvent) => {
+    e.preventDefault(); setErr(null);
+    try { await api.patch(`/advisor/students/${studentId}/status`, { status: "not_to_be_placed", reason }); onDone(`${name} marked as not to be placed`); }
+    catch (e) { setErr(e); }
+  };
+  return <Modal title={`Mark ${name.split(" ")[0]} as not to be placed?`} onClose={onClose}>
+    <form className="stack" onSubmit={save}>
+      <p className="cap" style={{ fontSize: 14 }}>Weekly checks and deductions stop, and {name.split(" ")[0]} won't appear in job matches or shortlists. You can reactivate at any time. Also update Placement Status in Notion so both match.</p>
+      <div><label className="lb" htmlFor="ntr">Reason (kept in the audit log)</label>
+        <textarea className="in" id="ntr" value={reason} onChange={(e) => setReason(e.target.value)} placeholder="e.g. Decided to stay in their current job; not job hunting" /></div>
+      <ErrorBox error={err} />
+      <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
+        <button type="button" className="btn bg" onClick={onClose}>Cancel</button>
+        <button className="btn bp" disabled={reason.trim().length < 10}>Confirm</button></div>
+    </form></Modal>;
+}
+
+function AssignTask({ studentId, first, onDone }: { studentId: string; first: string; onDone: (m: string) => void }) {
+  const [desc, setDesc] = useState("");
+  const [mode, setMode] = useState<"meeting" | "date">("meeting");
+  const [due, setDue] = useState("");
+  const [err, setErr] = useState<unknown>(null);
+  const [busy, setBusy] = useState(false);
+  const save = async (e: FormEvent) => {
+    e.preventDefault(); setBusy(true); setErr(null);
+    try {
+      await api.post(`/advisor/students/${studentId}/homework`, { description: desc.trim(), due_date: mode === "date" ? due : null });
+      setDesc(""); setDue(""); onDone(`Task sent to ${first}`);
+    } catch (e) { setErr(e); } finally { setBusy(false); }
+  };
+  return <form className="card stack" style={{ gap: 12 }} onSubmit={save}>
+    <h2 className="h2">Send a task</h2>
+    <div><label className="lb" htmlFor="tk">What should {first} do?</label>
+      <textarea className="in" id="tk" style={{ minHeight: 80 }} value={desc} onChange={(e) => setDesc(e.target.value)} placeholder="e.g. Apply to the 3 Radar jobs I shared and log them" /></div>
+    <div className="seg" role="radiogroup" aria-label="Due">
+      <button type="button" role="radio" aria-checked={mode === "meeting"} className={mode === "meeting" ? "on" : ""} onClick={() => setMode("meeting")}>By next meeting</button>
+      <button type="button" role="radio" aria-checked={mode === "date"} className={mode === "date" ? "on" : ""} onClick={() => setMode("date")}>By a date</button>
+    </div>
+    {mode === "date" && <div><label className="lb" htmlFor="tkd">Due date</label><input className="in" id="tkd" type="date" min={todayISO()} value={due} onChange={(e) => setDue(e.target.value)} /></div>}
+    <div className="cap">Done on time: +15. Still pending at the next 1:1: −15. {first} gets it by email right away.</div>
+    <ErrorBox error={err} />
+    <button className="btn bp" style={{ alignSelf: "flex-start" }} disabled={busy || desc.trim().length < 3 || (mode === "date" && !due)}>{busy ? "Sending…" : "Send task"}</button>
+  </form>;
+}
+
+const fmtVal = (v: unknown): string => {
+  if (v === null || v === undefined) return "—";
+  if (Array.isArray(v)) return v.map(fmtVal).join(", ");
+  if (typeof v === "boolean") return v ? "Yes" : "No";
+  if (typeof v === "number") return v > 0 && v <= 1 && !Number.isInteger(v) ? `${Math.round(v * 100)}%` : v.toLocaleString("en-US");
+  const s = String(v);
+  return /^\d{4}-\d{2}-\d{2}/.test(s) ? fmtDate(s, { month: "short", day: "numeric", year: "numeric" }) : s;
+};
+
+function FromNotion({ studentId }: { studentId: string }) {
+  const n = useApi<NotionSnap>(`/advisor/students/${studentId}/notion`);
+  if (!n.data || !n.data.connected) return null;
+  const groups: [string, Record<string, unknown>][] = [["Career & Job Guarantee", n.data.career], ["Academic", n.data.academic]];
+  if (n.data.show_billing) groups.push(["Billing (admins only)", n.data.billing]);
+  return <section className="card stack" style={{ gap: 14 }}>
+    <div className="between"><h2 className="h2">From <em>Notion</em></h2>
+      <span className="cap">{n.data.synced_at ? `Synced ${relTime(n.data.synced_at)}` : ""}{n.data.notion_url && <> · <a href={n.data.notion_url} target="_blank" rel="noreferrer">Open in Notion</a></>}</span></div>
+    {n.data.payments_behind !== null && <div className={n.data.payments_behind ? "err" : "ok"}>{n.data.payments_behind ? "Payments are behind. Missed payments can cancel the Job Guarantee." : "Payments are up to date."}</div>}
+    <div className="grid" style={{ gap: 16, gridTemplateColumns: "repeat(auto-fit,minmax(280px,1fr))" }}>
+      {groups.map(([title, vals]) => <div key={title} className="stack" style={{ gap: 6 }}>
+        <div className="eyebrow">{title}</div>
+        {Object.keys(vals).length === 0 ? <div className="cap">Nothing filled in Notion yet.</div> :
+          Object.entries(vals).map(([k, v]) => <div key={k} style={{ display: "flex", justifyContent: "space-between", gap: 12, fontSize: 14, padding: "6px 0", borderBottom: "1px solid var(--line-soft)" }}>
+            <span className="cap" style={{ fontSize: 14 }}>{k}</span><strong style={{ textAlign: "right" }}>{fmtVal(v)}</strong></div>)}
+      </div>)}
+    </div>
   </section>;
 }

@@ -39,6 +39,29 @@ def create_token(user: User) -> str:
     return jwt.encode({"sub": user.id, "role": user.role, "exp": exp}, settings.jwt_secret, algorithm=ALGO)
 
 
+def _pw_fingerprint(user: User) -> str:
+    import hashlib
+    return hashlib.sha256((user.password_hash or "none").encode()).hexdigest()[:16]
+
+
+def create_password_link_token(user: User, days: int = 7) -> str:
+    """Single-use: the token stops working as soon as the password changes."""
+    exp = now_utc() + timedelta(days=days)
+    return jwt.encode({"sub": user.id, "purpose": "set_password", "fp": _pw_fingerprint(user), "exp": exp},
+                      settings.jwt_secret, algorithm=ALGO)
+
+
+def user_from_password_token(db: Session, token: str) -> User:
+    try:
+        payload = jwt.decode(token, settings.jwt_secret, algorithms=[ALGO])
+    except JWTError:
+        raise HTTPException(400, "This link has expired. Ask your advisor for a new one.")
+    user = db.get(User, payload.get("sub"))
+    if payload.get("purpose") != "set_password" or not user or payload.get("fp") != _pw_fingerprint(user):
+        raise HTTPException(400, "This link was already used or is no longer valid. Ask your advisor for a new one.")
+    return user
+
+
 def current_user(
     creds: HTTPAuthorizationCredentials | None = Depends(_bearer), db: Session = Depends(get_db)
 ) -> User:

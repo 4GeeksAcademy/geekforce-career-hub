@@ -103,6 +103,9 @@ def run_sync(db: DB, nc: N.NotionClient | None = None, triggered_by: str | None 
             if adv:
                 st.advisor_id = adv.id
             st.stage = data["stage"]
+            st.notion_snapshot = data["snapshot"]
+            st.payments_behind = N.payments_behind(data["snapshot"])
+            st.notion_synced_at = datetime.now(UTC)
             st.country = st.country or "USA"
             if data["deadline_date"]:
                 st.deadline_date = data["deadline_date"]
@@ -110,6 +113,10 @@ def run_sync(db: DB, nc: N.NotionClient | None = None, triggered_by: str | None 
                 st.job_search_start_date = data["start_date"] or local_today()
             if st.stage == "placed" and st.status == "active":
                 st.status = "hired"
+            if data.get("not_to_be_placed") and st.status in ("active", "onboarding"):
+                st.status = "not_to_be_placed"
+                st.status_reason = st.status_reason or "Marked “Not to be Placed” in Notion"
+                st.status_changed_at = datetime.now(UTC)
             db.flush()
             if st.status == "onboarding" and data["tracker_pages"]:
                 summary["applications_imported"] += import_applications(db, nc, st, data["tracker_pages"])

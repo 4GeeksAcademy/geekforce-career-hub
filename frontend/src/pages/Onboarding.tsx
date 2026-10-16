@@ -18,7 +18,7 @@ export default function Onboarding() {
   const [result, setResult] = useState<SyncResult | null>(null);
   const [activating, setActivating] = useState<Onb | null>(null);
   const [adding, setAdding] = useState(false);
-  const [creds, setCreds] = useState<{ email: string; password: string | null } | null>(null);
+  const [creds, setCreds] = useState<{ email: string; link: string | null } | null>(null);
   const toast = useToast();
 
   const sync = async () => {
@@ -75,24 +75,24 @@ export default function Onboarding() {
       </div>
       {activating && <Activate s={activating} onClose={() => setActivating(null)} onDone={(c) => { setActivating(null); setCreds(c); toast("Student activated"); list.reload(); }} />}
       {adding && <AddStudent onClose={() => setAdding(false)} onDone={(c) => { setAdding(false); setCreds(c); toast("Student added"); }} />}
-      {creds && <Modal title="Sign-in details" onClose={() => setCreds(null)}>
-        <div className="ok">These were also emailed to the student. Share them privately if the email doesn't arrive.</div>
-        <div><div className="lb">Email</div><code>{creds.email}</code></div>
-        {creds.password ? <div><div className="lb">Temporary password</div><code style={{ fontSize: 16 }}>{creds.password}</code></div>
-          : <div className="cap">They already had a password, so it wasn't changed.</div>}
+      {creds && <Modal title="Invitation sent" onClose={() => setCreds(null)}>
+        <div className="ok">{creds.email} gets an email with a link to choose their password. The link works once, for 7 days.</div>
+        {creds.link && <div><div className="lb">Share it directly if the email doesn't arrive</div>
+          <div style={{ display: "flex", gap: 8 }}><input className="in" readOnly value={creds.link} onFocus={(e) => e.target.select()} />
+            <button className="btn bg" onClick={() => { navigator.clipboard?.writeText(creds.link!); toast("Link copied"); }}>Copy</button></div></div>}
         <button className="btn bp" onClick={() => setCreds(null)}>Done</button></Modal>}
     </>);
 }
 
-function Activate({ s, onClose, onDone }: { s: Onb; onClose: () => void; onDone: (c: { email: string; password: string | null }) => void }) {
+function Activate({ s, onClose, onDone }: { s: Onb; onClose: () => void; onDone: (c: { email: string; link: string | null }) => void }) {
   const [pts, setPts] = useState(String(s.suggested));
   const [note, setNote] = useState("");
   const [invite, setInvite] = useState(true);
   const [err, setErr] = useState<unknown>(null);
   const submit = async (e: FormEvent) => {
     e.preventDefault();
-    try { const r = await api.post<{ temporary_password: string | null }>(`/advisor/students/${s.id}/activate`, { starting_points: Number(pts), note: note || null, send_invite: invite });
-      onDone({ email: s.email, password: r.temporary_password }); }
+    try { const r = await api.post<{ invite_link: string | null }>(`/advisor/students/${s.id}/activate`, { starting_points: Number(pts), note: note || null, send_invite: invite });
+      onDone({ email: s.email, link: r.invite_link }); }
     catch (e) { setErr(e); }
   };
   const n = Number(pts);
@@ -103,20 +103,20 @@ function Activate({ s, onClose, onDone }: { s: Onb; onClose: () => void; onDone:
       {s.enrollment_plan === "job_guarantee" && n < 60 && <div className="err">Below 60 the guarantee starts suspended, and suspension is permanent.</div>}
       {s.enrollment_plan === "job_guarantee" && n >= 60 && n < 80 && <div className="cap">They'll start at risk (60–79).</div>}
       <div><label className="lb" htmlFor="sn">Why this balance? (saved in the audit log)</label><textarea className="in" id="sn" style={{ minHeight: 70 }} value={note} onChange={(e) => setNote(e.target.value)} /></div>
-      <label style={{ display: "flex", gap: 10, alignItems: "center", fontSize: 14 }}><input type="checkbox" checked={invite} onChange={(e) => setInvite(e.target.checked)} style={{ width: 18, height: 18 }} />Email their sign-in details now</label>
+      <label style={{ display: "flex", gap: 10, alignItems: "center", fontSize: 14 }}><input type="checkbox" checked={invite} onChange={(e) => setInvite(e.target.checked)} style={{ width: 18, height: 18 }} />Email their invitation link now</label>
       <ErrorBox error={err} />
       <button className="btn bp">Activate</button>
     </form></Modal>;
 }
 
-function AddStudent({ onClose, onDone }: { onClose: () => void; onDone: (c: { email: string; password: string | null }) => void }) {
+function AddStudent({ onClose, onDone }: { onClose: () => void; onDone: (c: { email: string; link: string | null }) => void }) {
   const cohorts = useApi<{ id: string; name: string }[]>("/admin/cohorts");
   const [f, setF] = useState({ name: "", email: "", cohort_id: "", enrollment_plan: "job_guarantee", job_search_start_date: todayISO(), starting_points: "80" });
   const [err, setErr] = useState<unknown>(null);
   const submit = async (e: FormEvent) => {
     e.preventDefault();
-    try { const r = await api.post<{ temporary_password: string | null }>("/advisor/students", { ...f, cohort_id: f.cohort_id || null, starting_points: Number(f.starting_points) });
-      onDone({ email: f.email, password: r.temporary_password }); }
+    try { const r = await api.post<{ invite_link: string | null }>("/advisor/students", { ...f, cohort_id: f.cohort_id || null, starting_points: Number(f.starting_points) });
+      onDone({ email: f.email, link: r.invite_link }); }
     catch (e) { setErr(e); }
   };
   return <Modal title="Add student manually" onClose={onClose}>

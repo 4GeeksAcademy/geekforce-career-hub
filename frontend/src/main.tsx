@@ -15,6 +15,8 @@ import Notifications from "./pages/Notifications";
 import StaffStudents from "./pages/StaffStudents";
 import StaffStudent from "./pages/StaffStudent";
 import Onboarding from "./pages/Onboarding";
+import JobRadar from "./pages/JobRadar";
+import SetPassword from "./pages/SetPassword";
 import { AdminAudit, AdminPauses, AdminPeople, AdminRules } from "./pages/Admin";
 
 function Guard({ staff, children }: { staff?: boolean; children: React.ReactNode }) {
@@ -31,6 +33,7 @@ function App() {
   return (
     <Routes>
       <Route path="/login" element={<Login />} />
+      <Route path="/set-password" element={<SetPassword />} />
       <Route element={<Guard><StudentLayout /></Guard>}>
         <Route path="/" element={<Dashboard />} />
         <Route path="/tracker" element={<Tracker />} />
@@ -44,6 +47,7 @@ function App() {
         <Route path="/staff/students/:id" element={<StaffStudent />} />
         <Route path="/staff/notifications" element={<Notifications staff />} />
         <Route path="/staff/onboarding" element={<Onboarding />} />
+        <Route path="/staff/jobs" element={<JobRadar />} />
         <Route path="/admin" element={<AdminPauses />} />
         <Route path="/admin/rules" element={<AdminRules />} />
         <Route path="/admin/people" element={<AdminPeople />} />
