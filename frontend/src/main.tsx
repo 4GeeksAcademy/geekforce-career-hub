@@ -15,6 +15,7 @@ import Notifications from "./pages/Notifications";
 import StaffStudents from "./pages/StaffStudents";
 import StaffStudent from "./pages/StaffStudent";
 import Onboarding from "./pages/Onboarding";
+import { StaffResume, StaffResumes } from "./pages/StaffResumes";
 import JobRadar from "./pages/JobRadar";
 import SetPassword from "./pages/SetPassword";
 import { AdminAudit, AdminPauses, AdminPeople, AdminRules } from "./pages/Admin";
@@ -48,6 +49,8 @@ function App() {
         <Route path="/staff/notifications" element={<Notifications staff />} />
         <Route path="/staff/onboarding" element={<Onboarding />} />
         <Route path="/staff/jobs" element={<JobRadar />} />
+        <Route path="/staff/resumes" element={<StaffResumes />} />
+        <Route path="/staff/resumes/:id" element={<StaffResume />} />
         <Route path="/admin" element={<AdminPauses />} />
         <Route path="/admin/rules" element={<AdminRules />} />
         <Route path="/admin/people" element={<AdminPeople />} />

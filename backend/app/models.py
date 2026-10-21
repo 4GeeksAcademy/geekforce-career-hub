@@ -7,7 +7,7 @@ import uuid
 from datetime import date, datetime
 
 from sqlalchemy import (
-    JSON, Boolean, Date, DateTime, ForeignKey, Integer, String, Text, UniqueConstraint, func,
+    JSON, Boolean, Date, DateTime, Float, ForeignKey, Integer, String, Text, UniqueConstraint, func,
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -324,3 +324,59 @@ class Job(TimestampMixin, Base):
     active: Mapped[bool] = mapped_column(Boolean, default=True)
     shared_count: Mapped[int] = mapped_column(Integer, default=0)
     raw: Mapped[dict | None] = mapped_column(JSON)
+
+
+class ResumeProfile(Base):
+    """The student's master resume (structured), edited by the student and by staff."""
+    __tablename__ = "resume_profiles"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    student_id: Mapped[str] = mapped_column(ForeignKey("students.id"), unique=True)
+    data: Mapped[dict] = mapped_column(JSON)
+    template: Mapped[str] = mapped_column(String(20), default="classic")
+    status: Mapped[str] = mapped_column(String(20), default="draft")  # draft | in_review | changes_requested | approved
+    submitted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    approved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))  # first approval unlocks downloads
+    approved_by: Mapped[str | None] = mapped_column(ForeignKey("users.id"))
+    updated_by: Mapped[str | None] = mapped_column(ForeignKey("users.id"))
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+
+class ResumeSnapshot(TimestampMixin, Base):
+    """A saved version: master history or a resume tailored to one job."""
+    __tablename__ = "resume_snapshots"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    student_id: Mapped[str] = mapped_column(ForeignKey("students.id"), index=True)
+    kind: Mapped[str] = mapped_column(String(20))  # master | tailored
+    label: Mapped[str] = mapped_column(String(255))
+    data: Mapped[dict] = mapped_column(JSON)
+    template: Mapped[str] = mapped_column(String(20), default="classic")
+    job_title: Mapped[str | None] = mapped_column(String(255))
+    company: Mapped[str | None] = mapped_column(String(255))
+    application_id: Mapped[str | None] = mapped_column(ForeignKey("applications.id"))
+    job_id: Mapped[str | None] = mapped_column(ForeignKey("jobs.id"))
+    analysis: Mapped[dict | None] = mapped_column(JSON)
+    created_by: Mapped[str | None] = mapped_column(ForeignKey("users.id"))
+    downloads: Mapped[int] = mapped_column(Integer, default=0)
+
+
+class ResumeComment(TimestampMixin, Base):
+    __tablename__ = "resume_comments"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    student_id: Mapped[str] = mapped_column(ForeignKey("students.id"), index=True)
+    author_id: Mapped[str] = mapped_column(ForeignKey("users.id"))
+    section: Mapped[str | None] = mapped_column(String(40))
+    body: Mapped[str] = mapped_column(Text)
+    resolved: Mapped[bool] = mapped_column(Boolean, default=False)
+
+
+class AiUsage(TimestampMixin, Base):
+    """Every server-side AI call (staff only), for the monthly budget."""
+    __tablename__ = "ai_usage"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.id"), index=True)
+    student_id: Mapped[str | None] = mapped_column(ForeignKey("students.id"))
+    kind: Mapped[str] = mapped_column(String(30))
+    model: Mapped[str] = mapped_column(String(80))
+    input_tokens: Mapped[int] = mapped_column(Integer, default=0)
+    output_tokens: Mapped[int] = mapped_column(Integer, default=0)
+    cost_usd: Mapped[float] = mapped_column(Float, default=0)

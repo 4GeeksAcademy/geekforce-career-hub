@@ -316,30 +316,9 @@ def student_pauses(student_id: str, user: User = Depends(current_user), db: Sess
 # ── resume builder ──
 
 @router.post("/resume/analyze")
-async def analyze_resume(job_description: str = Form(...), title: str = Form(""), resume_text: str = Form(""),
-                         file: UploadFile | None = File(None), user: User = Depends(current_user),
-                         db: Session = Depends(get_db)):
-    st = student_for(db, user, "me")
-    text = resume_text.strip()
-    if file is not None and file.filename:
-        data = await file.read()
-        if len(data) > 5 * 1024 * 1024:
-            raise HTTPException(413, "Keep the file under 5 MB")
-        text = resume_svc.extract_text(file.filename, data)
-        engine.complete_profile_task(db, st, "cv", user)
-    if not text:
-        last = db.scalar(select(ResumeVersion).where(ResumeVersion.student_id == st.id)
-                         .order_by(ResumeVersion.created_at.desc()))
-        if not last:
-            raise HTTPException(422, "Upload your resume or paste it as text")
-        text = last.resume_text
-    analysis = resume_svc.analyze(text, job_description)
-    v = ResumeVersion(student_id=st.id, title=title.strip() or "Tailored resume", resume_text=text,
-                      job_description=job_description, analysis=analysis)
-    db.add(v)
-    engine.touch(st)
-    db.commit()
-    return {"id": v.id, "title": v.title, "analysis": analysis, "created_at": iso(v.created_at)}
+async def analyze_resume(user: User = Depends(current_user)):
+    """Retired: students tailor with the copy-paste prompt in the Resume Builder (no hub AI tokens)."""
+    raise HTTPException(410, "The resume tool moved. Open the Resume Builder and use “Tailor for a job”.")
 
 
 @router.get("/resume/versions")

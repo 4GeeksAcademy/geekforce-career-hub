@@ -82,6 +82,10 @@ export default function StaffStudent() {
           <LogSession d={d} scheduledId={scheduled?.id} scheduledDate={scheduled?.session_date} onSaved={(m) => { toast(m); reload(); }} />
           <div style={{ flex: "1 1 320px", display: "flex", flexDirection: "column", gap: 24, minWidth: 0 }}>
             <Schedule studentId={st.id} scheduled={scheduled} onDone={(m) => { toast(m); reload(); }} />
+            <section className="card" style={{ display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
+              <div style={{ flex: 1 }}><h2 className="h2" style={{ fontSize: 18 }}>Resume</h2>
+                <div className="cap">Build, comment, tailor with AI and approve in Resume Studio.</div></div>
+              <Link className="btn bp sm" to={`/staff/resumes/${st.id}`}>Open resume</Link></section>
             <AssignTask studentId={st.id} first={st.name.split(" ")[0]} onDone={(m) => { toast(m); reload(); }} />
             <Adjust studentId={st.id} onDone={(m) => { toast(m); reload(); }} />
             <Offer studentId={st.id} offers={apps.data?.items || []} onDone={(m) => { toast(m); reload(); }} />
