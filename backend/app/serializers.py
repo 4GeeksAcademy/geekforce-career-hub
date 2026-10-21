@@ -193,6 +193,11 @@ def next_actions(db: DB, st: Student, r: Rules) -> list[dict]:
     return acts[:4]
 
 
+def stage_progress(db: DB, st: Student, target: int) -> dict:
+    from .stages import progress
+    return progress(db, st, target)
+
+
 def dashboard(db: DB, st: Student) -> dict:
     r = get_rules(db)
     monday = week_start()
@@ -230,6 +235,7 @@ def dashboard(db: DB, st: Student) -> dict:
         "pending_homework": [homework_dict(t) for t in pending],
         "next_session": session_dict(upcoming) if upcoming else None,
         "actions": next_actions(db, st, r),
+        "journey": stage_progress(db, st, weekly_target(st, r)),
         "conditions": guarantee_conditions(db, st, r),
         "recent": [event_dict(e) for e in recent],
         "deadline": deadline_info(db, st, r),

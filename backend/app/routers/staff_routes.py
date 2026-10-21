@@ -45,7 +45,7 @@ ORDER = {"suspended": 0, "at_risk": 1, "secured": 3, "not_eligible": 4}
 
 
 @router.get("/students")
-def my_students(cohort_id: str | None = None, status: str | None = None, q: str | None = None,
+def my_students(cohort_id: str | None = None, status: str | None = None, q: str | None = None, stage: str | None = None,
                 user: User = Depends(require_staff), db: Session = Depends(get_db)):
     r = get_rules(db)
     query = _scope(user).where(Student.status != "onboarding")
@@ -56,9 +56,16 @@ def my_students(cohort_id: str | None = None, status: str | None = None, q: str 
     rows = [_row(db, st, monday, today) for st in students]
     if q:
         rows = [x for x in rows if q.lower() in x["name"].lower() or q.lower() in x["email"].lower()]
+    stage_counts: dict[str, int] = {}
+    for x in rows:
+        if x["status"] in ("active", "hired"):
+            k = x["display_stage"] or "not_started"
+            stage_counts[k] = stage_counts.get(k, 0) + 1
     if status:
         rows = [x for x in rows if (x["status"] == status or x["guarantee_status"] == status or
                                     (status == "paused" and x["paused"]))]
+    if stage:
+        rows = [x for x in rows if (x["display_stage"] or "not_started") == stage]
     rows.sort(key=lambda x: (x["status"] != "active", ORDER.get(x["guarantee_status"], 5) if not x["paused"] else 2,
                              x["points"]))
     active = [x for x in rows if x["status"] == "active"]
@@ -69,7 +76,7 @@ def my_students(cohort_id: str | None = None, status: str | None = None, q: str 
                "paused": sum(1 for x in active if x["paused"]),
                "hired": sum(1 for x in rows if x["status"] == "hired")}
     cohorts = db.scalars(select(Cohort).order_by(Cohort.name)).all()
-    return {"summary": summary, "items": rows, "target": r.weekly_application_target,
+    return {"summary": summary, "stage_counts": stage_counts, "items": rows, "target": r.weekly_application_target,
             "target_prof_support": r.weekly_target_prof_support,
             "max_missed": r.max_missed_meetings,
             "cohorts": [{"id": c.id, "name": c.name} for c in cohorts]}
@@ -227,6 +234,21 @@ def student_notion(student_id: str, user: User = Depends(require_staff), db: Ses
             **{k: snap.get(k) or {} for k in ("career", "academic", "billing")}}
 
 
+class StageIn(BaseModel):
+    stage: str = Field(pattern="^(not_started|profile|interview_prep|job_hunting|placed)$")
+    note: str | None = Field(default=None, max_length=1000)
+
+
+@router.patch("/students/{student_id}/stage")
+def change_stage(student_id: str, body: StageIn, user: User = Depends(require_staff), db: Session = Depends(get_db)):
+    """Move a student between stages. Logged, the student is told what's next, and ActiveCampaign/n8n get an event."""
+    from .. import stages
+    st = student_for(db, user, student_id)
+    changed = stages.set_stage(db, st, body.stage, user, note=body.note)
+    db.commit()
+    return {"changed": changed, "student": student_brief(st), "journey": stages.progress(db, st, engine.weekly_target(st, get_rules(db)))}
+
+
 class AssignHomeworkIn(BaseModel):
     description: str = Field(min_length=3, max_length=2000)
     due_date: date | None = None  # None = by the next meeting
@@ -329,6 +351,8 @@ def set_status(student_id: str, body: StudentStatusIn, user: User = Depends(requ
     from ..models import AuditLog
     db.add(AuditLog(actor_id=user.id, student_id=st.id, action="student_status",
                     detail=f"Status → {body.status}" + (f" · {reason}" if reason else "")))
+    from .. import events
+    events.emit(db, "status_changed", st, {"to": body.status, "reason": reason or None, "by": user.name})
     db.commit()
     return student_brief(st)
 

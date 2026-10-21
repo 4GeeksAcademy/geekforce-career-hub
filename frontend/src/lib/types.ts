@@ -45,6 +45,7 @@ export interface Dashboard {
   pause: { active: boolean; from: string | null; until: string | null; available: number; max_days: number;
     multiplier: number; pending: Pause | null };
   unread_notifications: number; rules: Record<string, number>;
+  journey: import("../components/Journey").Journey;
 }
 export interface AppItem {
   id: string; company: string; role: string; job_url: string | null; status: string; source: string;

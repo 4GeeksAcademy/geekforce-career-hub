@@ -33,6 +33,9 @@ FIELDS = {  # perstag → title
 }
 STATUS_TAGS = {"secured": "GF Secured", "at_risk": "GF At risk", "suspended": "GF Suspended",
                "not_eligible": "GF Professional Support", "hired": "GF Hired"}
+STAGE_TAGS = {"not_started": "GF Stage 0 · Not started", "profile": "GF Stage 1 · Profile",
+              "interview_prep": "GF Stage 2 · Interview prep", "job_hunting": "GF Stage 3 · Job hunting",
+              "placed": "GF Placed"}
 ALERT_TAG = "GF Alert"
 INVITE_TAG = "GF Invite"
 
@@ -122,6 +125,13 @@ class AC:
         if ct:
             self._req("DELETE", f"/contactTags/{ct}")
 
+    def set_exclusive(self, contact_id: str, tags: dict[str, str], key: str | None):
+        for k, tag in tags.items():
+            if k == key:
+                self.add_tag(contact_id, tag)
+            else:
+                self.remove_tag(contact_id, tag)
+
     def set_status_tag(self, contact_id: str, status_key: str | None):
         for key, tag in STATUS_TAGS.items():
             if key == status_key:
@@ -164,6 +174,22 @@ def send_alert(email: str, name: str, title: str, body: str, link: str | None, f
         return False
 
 
+def push_state(email: str, name: str, fields: dict, status: str | None, stage: str | None,
+               transport: httpx.BaseTransport | None = None) -> bool:
+    """After a stage/status change: update fields and swap the stage + status tags (AC automations start on 'tag added')."""
+    if not configured():
+        return False
+    try:
+        a = AC(transport)
+        cid = a.sync_contact(email, name, fields)
+        a.set_exclusive(cid, STATUS_TAGS, status)
+        a.set_exclusive(cid, STAGE_TAGS, stage or "not_started")
+        return True
+    except Exception as e:  # noqa: BLE001
+        log.warning("ActiveCampaign state push failed for %s: %s", email, e)
+        return False
+
+
 def send_invite(email: str, name: str, login_link: str, fields: dict | None = None,
                 transport: httpx.BaseTransport | None = None) -> bool:
     if not configured():
@@ -186,6 +212,7 @@ def sync_student(student, transport: httpx.BaseTransport | None = None) -> bool:
         ac = AC(transport)
         cid = ac.sync_contact(student.user.email, student.user.name, student_fields(student))
         ac.set_status_tag(cid, status_key(student))
+        ac.set_exclusive(cid, STAGE_TAGS, student.stage or "not_started")
         return True
     except Exception as e:  # noqa: BLE001
         log.warning("ActiveCampaign sync failed for %s: %s", student.user.email, e)

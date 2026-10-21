@@ -8,6 +8,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
+from . import events  # noqa: F401 — registers the outbound-event listener
 from .config import settings
 from .db import Base, SessionLocal, engine
 from .routers import admin_routes, auth_routes, jobs_routes, staff_routes, student_routes

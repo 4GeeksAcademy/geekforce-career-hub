@@ -1,3 +1,4 @@
+import { JourneyTracker } from "../components/Journey";
 import { Link } from "react-router-dom";
 import { useEffect } from "react";
 import { useApi } from "../lib/useApi";
@@ -50,6 +51,8 @@ export default function Dashboard() {
           <div style={{ flex: "1 1 320px" }}><div style={{ fontWeight: 800, fontSize: 17 }}>{banner.title}</div><div style={{ fontSize: 14 }}>{banner.body}</div></div>
           <Link className="btn bp" to="/points">See my plan <IArrow size={16} /></Link>
         </div>
+
+        {d.journey && <JourneyTracker j={d.journey} />}
 
         <div className="row">
           <section className="card stack" style={{ flex: "1 1 300px", alignItems: "center" }} aria-label="Career points">

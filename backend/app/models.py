@@ -79,6 +79,8 @@ class Student(TimestampMixin, Base):
     enrollment_plan: Mapped[str | None] = mapped_column(String(30))  # job_guarantee | professional_support
     # not_started | profile | interview_prep | job_hunting | placed (synced from Notion "GeekForce Stages completion")
     stage: Mapped[str | None] = mapped_column(String(20))
+    stage_changed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    notion_stage_seen: Mapped[str | None] = mapped_column(String(20))  # last stage value read from Notion
     on_hold: Mapped[bool] = mapped_column(Boolean, default=False)  # Not Started ladder day 15: checks frozen
     not_started_level: Mapped[int] = mapped_column(Integer, default=0)  # last ladder step applied (0/7/15/30)
     activated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

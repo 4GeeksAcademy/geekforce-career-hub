@@ -28,6 +28,10 @@ class Settings(BaseSettings):
     adzuna_country: str = "us"
     jobs_ingest_secret: str = ""  # header X-Jobs-Secret for POST /api/v1/integrations/jobs (grokbot)
 
+    # Automations: every stage/status change is POSTed here (e.g. an n8n Webhook URL), header X-GeekForce-Secret
+    automation_webhook_url: str = ""
+    automation_webhook_secret: str = ""
+
     # Brevo (email fallback, only used when ActiveCampaign isn't configured)
     brevo_api_key: str = ""
     brevo_sender_email: str = "geekforce@4geeksacademy.com"

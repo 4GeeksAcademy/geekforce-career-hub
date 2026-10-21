@@ -7,6 +7,7 @@ import { channelLabel, fmtDate, planLabel, relTime, sessionType, signed, stageLa
 import { useAuth } from "../lib/auth";
 import { ErrorBox, Modal, Spinner, StatusPill, useToast } from "../components/ui";
 import { IBack } from "../components/Icons";
+import { JourneyTracker } from "../components/Journey";
 
 type Preview = { effects: { type: string; delta: number; title: string }[]; balance_before: number; balance_after: number;
   status_after: string; streak_after: number; missed_meetings_after: number; reschedules_after: number;
@@ -74,6 +75,8 @@ export default function StaffStudent() {
             <Stat l="Deadline"><span className="num" style={{ fontSize: 18 }}>{fmtDate(d.deadline.deadline, { month: "short", day: "numeric", year: "numeric" })}</span></Stat>
           </div>
         </section>
+
+        <JourneyTracker j={d.journey} studentId={st.id} editable first={st.name.split(" ")[0]} onChanged={(m) => { toast(m); reload(); }} />
 
         <div className="row" style={{ alignItems: "flex-start" }}>
           <LogSession d={d} scheduledId={scheduled?.id} scheduledDate={scheduled?.session_date} onSaved={(m) => { toast(m); reload(); }} />

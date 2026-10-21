@@ -6,7 +6,7 @@ import { fmtDate, stageLabel, statusColor } from "../lib/format";
 import { ErrorBox, Spinner, StatusPill } from "../components/ui";
 import { useAuth } from "../lib/auth";
 
-type List = { summary: Record<string, number>; items: StaffRow[]; target: number; max_missed: number; cohorts: { id: string; name: string }[] };
+type List = { summary: Record<string, number>; stage_counts: Record<string, number>; items: StaffRow[]; target: number; max_missed: number; cohorts: { id: string; name: string }[] };
 type Att = { kind: string; student_id: string; pause_id?: string; text: string };
 const ATT: Record<string, [string, string]> = { suspended: ["Suspended", "pr"], on_hold: ["On hold", "pr"], meetings: ["Meetings", "pr"],
   follow_up: ["Follow-up", "pb"], inactive: ["Inactive", "pa"], offer: ["Offer", "pa"], pause: ["Pause", "pg"], onboarding: ["Onboarding", "pg"] };
@@ -15,7 +15,8 @@ export default function StaffStudents() {
   const [cohort, setCohort] = useState("");
   const [status, setStatus] = useState("");
   const [q, setQ] = useState("");
-  const list = useApi<List>(`/advisor/students?${new URLSearchParams({ ...(cohort && { cohort_id: cohort }), ...(status && { status }), ...(q && { q }) })}`);
+  const [stage, setStage] = useState("");
+  const list = useApi<List>(`/advisor/students?${new URLSearchParams({ ...(cohort && { cohort_id: cohort }), ...(status && { status }), ...(q && { q }), ...(stage && { stage }) })}`);
   const att = useApi<Att[]>("/advisor/attention");
   const nav = useNavigate();
   const s = list.data?.summary;
@@ -50,6 +51,22 @@ export default function StaffStudents() {
           <div className="stat s-red"><span className="l">Suspended</span><span className="v">{s.suspended}</span><span className="c">below 60</span></div>
           <div className="stat"><span className="l">On pause</span><span className="v">{s.paused}</span><span className="c">deductions frozen</span></div>
         </div>}
+
+        {list.data && <section className="card stack" style={{ gap: 12 }}>
+          <div className="between"><h2 className="h2">Students by <em>stage</em></h2>{stage && <button className="btn bg sm" onClick={() => setStage("")}>Show all</button>}</div>
+          <div className="grid" style={{ gap: 10, gridTemplateColumns: "repeat(auto-fit,minmax(150px,1fr))" }}>
+            {[["not_started", "Not started", "0"], ["profile", "Stage 1 · Profile", "1"], ["interview_prep", "Stage 2 · Interview prep", "2"],
+              ["job_hunting", "Stage 3 · Job hunting", "3"], ["interviewing", "Interviewing", "★"], ["placed", "Placed", "✓"]].map(([k, l, n]) => {
+              const on = stage === k;
+              return <button key={k} onClick={() => setStage(on ? "" : k)} className="stat" style={{ cursor: "pointer", textAlign: "left", font: "inherit",
+                background: on ? "var(--blue-deep)" : k === "job_hunting" || k === "interviewing" ? "#E9F2FE" : "#fff", color: on ? "#fff" : undefined,
+                borderColor: on ? "var(--blue-deep)" : undefined }}>
+                <span style={{ display: "flex", alignItems: "center", gap: 8 }}><span className="ynum" style={{ width: 24, height: 24, fontSize: 12 }}>{n}</span>
+                  <span className="l" style={{ color: on ? "#fff" : undefined }}>{l}</span></span>
+                <span className="v">{list.data!.stage_counts?.[k] ?? 0}</span></button>;
+            })}
+          </div>
+        </section>}
 
         {att.data && att.data.length > 0 && (
           <section className="card" style={{ display: "flex", flexDirection: "column" }}>

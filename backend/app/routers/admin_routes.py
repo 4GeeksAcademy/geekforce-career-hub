@@ -97,7 +97,7 @@ def ac_setup(user: User = Depends(require_admin)):
     try:
         client = ac.AC()
         fields = client.field_ids()
-        tags = [client.tag_id(t) and t for t in [ac.ALERT_TAG, ac.INVITE_TAG, *ac.STATUS_TAGS.values()]]
+        tags = [client.tag_id(t) and t for t in [ac.ALERT_TAG, ac.INVITE_TAG, *ac.STATUS_TAGS.values(), *ac.STAGE_TAGS.values()]]
     except Exception as e:  # noqa: BLE001
         raise HTTPException(502, f"ActiveCampaign said: {e}")
     return {"ok": True, "fields": sorted(fields), "tags": tags}

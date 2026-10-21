@@ -102,7 +102,14 @@ def run_sync(db: DB, nc: N.NotionClient | None = None, triggered_by: str | None 
             adv = _advisor(db, data["advisor_name"])
             if adv:
                 st.advisor_id = adv.id
-            st.stage = data["stage"]
+            db.flush()
+            # Notion moves the stage only when someone changed it there since the last sync; otherwise the
+            # advisor's change in the hub stands.
+            notion_stage = data["stage"]
+            if notion_stage and notion_stage != st.notion_stage_seen:
+                from .stages import set_stage
+                set_stage(db, st, notion_stage, None, source="notion", notify=st.status == "active")
+            st.notion_stage_seen = notion_stage
             st.notion_snapshot = data["snapshot"]
             st.payments_behind = N.payments_behind(data["snapshot"])
             st.notion_synced_at = datetime.now(UTC)
@@ -111,8 +118,6 @@ def run_sync(db: DB, nc: N.NotionClient | None = None, triggered_by: str | None 
                 st.deadline_date = data["deadline_date"]
             if not st.job_search_start_date:
                 st.job_search_start_date = data["start_date"] or local_today()
-            if st.stage == "placed" and st.status == "active":
-                st.status = "hired"
             if data.get("not_to_be_placed") and st.status in ("active", "onboarding"):
                 st.status = "not_to_be_placed"
                 st.status_reason = st.status_reason or "Marked “Not to be Placed” in Notion"
