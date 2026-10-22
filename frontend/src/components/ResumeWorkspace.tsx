@@ -40,6 +40,13 @@ const TEMPLATE_NOTE: Record<string, string> = {
 
 // starter content for "start from a template": brackets are for the student to replace
 const STARTERS: Record<string, Partial<RData>> = {
+  "AI Engineering": {
+    summary: "AI Engineer trained at 4Geeks Academy. I build applications on top of large language models: RAG pipelines, agents and APIs in Python. [Your background and what you bring from it].",
+    skills: [{ group: "AI & LLMs", items: ["OpenAI / Anthropic APIs", "Prompt engineering", "RAG", "LangChain", "AI agents", "Embeddings"] },
+      { group: "Languages & data", items: ["Python", "SQL", "pandas"] }, { group: "Backend & tools", items: ["FastAPI", "Vector databases", "Docker", "Git"] }],
+    projects: [{ name: "[Final project name]", link: "", tech: "Python, FastAPI, LangChain, vector DB", bullets: ["[The problem it solves and for whom]", "[What you built: RAG over X documents, an agent that does Y]", "[Result: accuracy, response time, users, demo day]"] }],
+    education: [{ school: "4Geeks Academy", degree: "AI Engineering", start: "", end: "[MM/YYYY]", details: "" }],
+  },
   "Full Stack": {
     summary: "Full Stack Developer trained at 4Geeks Academy. I build web apps with React and Python, [one sentence about your background and what you bring from it].",
     skills: [{ group: "Frontend", items: ["JavaScript", "React", "HTML", "CSS"] }, { group: "Backend", items: ["Python", "Flask", "SQL", "REST APIs"] },
@@ -148,7 +155,7 @@ export function ResumeWorkspace({ studentId, staff }: { studentId: string; staff
       {tab === "resume" && (empty
         ? <StartPanel base={base} staff={staff} ai={s.ai} first={first} onStarter={(prog) => {
             const st0 = STARTERS[prog];
-            edit({ ...EMPTY, ...st0, basics: { ...data.basics, headline: data.basics.headline || (prog === "Cybersecurity" ? "Cybersecurity Analyst" : prog === "Full Stack" ? "Full Stack Developer" : "Data Scientist") } } as RData);
+            edit({ ...EMPTY, ...st0, basics: { ...data.basics, headline: data.basics.headline || ({ "AI Engineering": "AI Engineer", Cybersecurity: "Cybersecurity Analyst", "Full Stack": "Full Stack Developer" }[prog] || "Data Scientist") } } as RData);
             toast("Starter loaded. Replace everything in [brackets].");
           }} onScratch={() => edit({ ...data, summary: " " })} importing={importing} setImporting={setImporting}
           onImported={() => { st.reload(); toast("Resume imported. Check every section."); }} />
