@@ -244,6 +244,32 @@ def get_version(student_id: str, vid: str, user: User = Depends(current_user), d
     return _snap_dict(s, full=True)
 
 
+class VersionPatch(BaseModel):
+    data: dict | None = None
+    label: str | None = Field(default=None, min_length=2, max_length=255)
+    template: str | None = Field(default=None, pattern="^(classic|modern|technical)$")
+
+
+@router.put("/students/{student_id}/resume/versions/{vid}")
+def update_version(student_id: str, vid: str, body: VersionPatch, user: User = Depends(current_user), db: Session = Depends(get_db)):
+    """Edit a saved version (fill in [placeholders], tweak wording). Doesn't count against the weekly limit."""
+    st = student_for(db, user, student_id)
+    s = db.get(ResumeSnapshot, vid)
+    if not s or s.student_id != st.id:
+        raise HTTPException(404, "Version not found")
+    if body.data is not None:
+        data = R.normalize(body.data)
+        if R.is_empty(data):
+            raise HTTPException(422, "The version can't be empty.")
+        s.data = data
+    if body.label:
+        s.label = body.label.strip()
+    if body.template:
+        s.template = body.template
+    db.commit()
+    return _snap_dict(s, full=True)
+
+
 @router.get("/students/{student_id}/resume/docx")
 def download_docx(student_id: str, version: str | None = None, template: str | None = None,
                   user: User = Depends(current_user), db: Session = Depends(get_db)):

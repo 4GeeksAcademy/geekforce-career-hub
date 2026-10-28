@@ -147,6 +147,7 @@ export function ResumeWorkspace({ studentId, staff }: { studentId: string; staff
                     onClick={() => setPrintData({ data, template })}>PDF</button>
                   <button className="btn bp sm" disabled={!s.can_download} onClick={() => download()}><IDownload size={15} />.docx</button></div></div>
               {!s.can_download && <div className="strip"><b>Locked</b><span>Download unlocks after your advisor approves your first resume.</span></div>}
+              <Placeholders data={data} />
               <Preview data={data} template={template} />
             </div>
           </div>)}
@@ -154,7 +155,7 @@ export function ResumeWorkspace({ studentId, staff }: { studentId: string; staff
       {tab === "tailor" && <div className="no-print"><Tailor base={base} staff={staff} state={s} master={data} dirty={dirty} saveFirst={() => save(true)}
         template={template} onSaved={() => { st.reload(); setTab("versions"); }} /></div>}
 
-      {tab === "versions" && <div className="no-print"><Versions base={base} state={s} onDownload={download}
+      {tab === "versions" && <div className="no-print"><Versions base={base} state={s} onDownload={download} onChanged={st.reload}
         onPdf={(v) => setPrintData({ data: v.data!, template: v.template })} /></div>}
 
       {printData && <div className="print-area"><Preview data={printData.data} template={printData.template} bare /></div>}
@@ -451,6 +452,7 @@ function Tailor({ base, staff, state, master, dirty, saveFirst, template, onSave
   const [review, setReview] = useState<Review | null>(null);
   const [accepted, setAccepted] = useState<Record<string, boolean>>({});
   const [preview, setPreview] = useState<RData | null>(null);
+  const [custom, setCustom] = useState<RData | null>(null);  // full manual edit of the tailored version
   const [busy, setBusy] = useState<string | null>(null);
   const [err, setErr] = useState<unknown>(null);
   const [vLabel, setVLabel] = useState("");
@@ -477,7 +479,7 @@ function Tailor({ base, staff, state, master, dirty, saveFirst, template, onSave
     } catch (e) { setErr(e); } finally { setBusy(null); }
   };
   const start = (r: Review) => {
-    setReview(r); setAccepted(Object.fromEntries(r.changes.map((c) => [c.id, true])));
+    setReview(r); setCustom(null); setAccepted(Object.fromEntries(r.changes.map((c) => [c.id, true])));
     setVLabel([company || r.company, jobTitle || r.job_title].filter(Boolean).join(" · ") || "Tailored resume");
   };
   const doReview = async () => {
@@ -494,7 +496,7 @@ function Tailor({ base, staff, state, master, dirty, saveFirst, template, onSave
   const saveVersion = async () => {
     setBusy("save"); setErr(null);
     try {
-      await api.post(`${base}/versions`, { label: vLabel, data: preview || master, template: vTemplate, kind: "tailored",
+      await api.post(`${base}/versions`, { label: vLabel, data: custom || preview || master, template: vTemplate, kind: "tailored",
         job_title: jobTitle || review?.job_title || null, company: company || review?.company || null,
         analysis: review ? { match_score: review.match_score, missing_keywords: review.missing_keywords, summary_of_fit: review.summary_of_fit } : null });
       toast("Tailored version saved"); onSaved();
@@ -507,12 +509,16 @@ function Tailor({ base, staff, state, master, dirty, saveFirst, template, onSave
         <section className="card stack" style={{ gap: 14 }}>
           <div className="between"><div><div className="kick">Fit for this job</div>
             <div style={{ display: "flex", alignItems: "baseline", gap: 8 }}><span className="num" style={{ fontSize: 44, lineHeight: 1, color: "var(--amber-num)" }}>{review.match_score ?? "—"}</span><span className="cap">/ 100 match</span></div></div>
-            <button className="btn bg sm" onClick={() => { setReview(null); setAnswer(""); }}>Start again</button></div>
+            <button className="btn bg sm" onClick={() => { setReview(null); setCustom(null); setAnswer(""); }}>Start again</button></div>
           {review.summary_of_fit && <p style={{ fontSize: 14 }}>{review.summary_of_fit}</p>}
           {review.missing_keywords.length > 0 && <div><div className="lb">Missing keywords · add only what's true</div>
             <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>{review.missing_keywords.map((k) => <span key={k} className="pill pa">{k}</span>)}</div></div>}
         </section>
-        <section className="card stack" style={{ gap: 12 }}>
+        {custom ? <section className="stack" style={{ gap: 12 }}>
+          <div className="strip" style={{ background: "var(--blue-tint)" }}><b>Editing this version</b><span style={{ flex: 1 }}>Change anything you like. The master resume stays as it is.</span>
+            <button className="linkbtn" onClick={() => setCustom(null)}>Back to the suggestions</button></div>
+          <Editor data={custom} onChange={setCustom} />
+        </section> : <section className="card stack" style={{ gap: 12 }}>
           <div className="between"><h3 className="h2" style={{ fontSize: 17 }}>Suggested changes · {chosen.length} of {review.changes.length} kept</h3>
             {review.dropped > 0 && <span className="cap">{review.dropped} skipped (didn't match the resume)</span>}</div>
           {review.changes.length === 0 && <p className="cap">No usable changes. Check you pasted the whole answer, or try again.</p>}
@@ -522,10 +528,16 @@ function Tailor({ base, staff, state, master, dirty, saveFirst, template, onSave
             <span className="stack" style={{ gap: 4, flex: 1, minWidth: 0 }}>
               <span className="cap" style={{ fontWeight: 700, fontSize: 12 }}>{pathLabel(c.path, master)}</span>
               {fmt(c.before) && <span style={{ fontSize: 13, color: "var(--muted)", textDecoration: "line-through" }}>{fmt(c.before)}</span>}
-              <span style={{ fontSize: 14, fontWeight: 600 }}>{hl(fmt(c.after))}</span>
+              {accepted[c.id]
+                ? <textarea className="in" aria-label="Suggested text (you can edit it)" rows={Math.max(2, Math.ceil(fmt(c.after).length / 70))}
+                    style={{ minHeight: 0, fontSize: 14, fontWeight: 600, background: placeholders({ ...EMPTY, summary: fmt(c.after) }).length ? "#FFFBEF" : "#fff" }}
+                    value={fmt(c.after)} onClick={(e) => e.stopPropagation()}
+                    onChange={(e) => { const v = Array.isArray(c.before) ? e.target.value.split(",").map((x) => x.trim()) : e.target.value;
+                      setReview({ ...review, changes: review.changes.map((x) => (x.id === c.id ? { ...x, after: v } : x)) }); }} />
+                : <span style={{ fontSize: 14, fontWeight: 600 }}>{hl(fmt(c.after))}</span>}
               {c.reason && <span className="cap" style={{ fontSize: 12 }}>Why: {c.reason}</span>}</span></label>)}
-          <div className="cap" style={{ fontSize: 12 }}>Anything in [brackets] is a number or detail to confirm before sending.</div>
-        </section>
+          <div className="cap" style={{ fontSize: 12 }}>You can edit each suggestion. Replace anything in [brackets] with your real number or detail. To change other parts too, use "Edit the whole resume".</div>
+        </section>}
         <section className="card stack" style={{ gap: 12 }}>
           <h3 className="h2" style={{ fontSize: 17 }}>Save this version</h3>
           <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
@@ -541,8 +553,10 @@ function Tailor({ base, staff, state, master, dirty, saveFirst, template, onSave
         </section>
       </div>
       <div className="stack" style={{ gap: 12, position: "sticky", top: 16 }}>
-        <span className="lb" style={{ margin: 0 }}>Preview with the changes you kept</span>
-        <Preview data={preview || master} template={vTemplate} />
+        <div className="between"><span className="lb" style={{ margin: 0 }}>{custom ? "Preview of your edited version" : "Preview with the changes you kept"}</span>
+          {!custom && <button className="btn bg sm" onClick={() => setCustom(structuredClone(preview || master))}>Edit the whole resume</button>}</div>
+        <Placeholders data={custom || preview || master} />
+        <Preview data={custom || preview || master} template={vTemplate} />
       </div>
     </div>);
 
@@ -576,6 +590,18 @@ function Tailor({ base, staff, state, master, dirty, saveFirst, template, onSave
     </div>);
 }
 
+/** Every "[...]" placeholder still in the resume. */
+export function placeholders(d: RData): string[] {
+  const out: string[] = [];
+  const walk = (v: unknown) => { if (typeof v === "string") out.push(...(v.match(/\[[^\]]+\]/g) || [])); else if (Array.isArray(v)) v.forEach(walk); else if (v && typeof v === "object") Object.values(v).forEach(walk); };
+  walk(d); return out;
+}
+export function Placeholders({ data }: { data: RData }) {
+  const ph = placeholders(data);
+  if (!ph.length) return null;
+  return <div className="strip"><b>{ph.length} to fill in</b><span>Replace {ph.slice(0, 3).map((x) => <mark key={x} style={{ background: "#fff", color: "#7A4E00", borderRadius: 3, padding: "0 3px", marginRight: 4 }}>{x}</mark>)}{ph.length > 3 ? "…" : ""} with your real details before sending.</span></div>;
+}
+
 function fmt(v: unknown): string { return Array.isArray(v) ? v.join(", ") : String(v ?? ""); }
 function pathLabel(path: string, d: RData): string {
   const p = path.split(".");
@@ -589,17 +615,34 @@ function pathLabel(path: string, d: RData): string {
 }
 
 // ── versions ──
-function Versions({ base, state, onDownload, onPdf }: { base: string; state: State; onDownload: (v: Version) => void; onPdf: (v: Version) => void }) {
+function Versions({ base, state, onDownload, onPdf, onChanged }: { base: string; state: State; onDownload: (v: Version) => void; onPdf: (v: Version) => void; onChanged: () => void }) {
   const [open, setOpen] = useState<string | null>(null);
   const full = useApi<Version>(open ? `${base}/versions/${open}` : null);
+  const [draft, setDraft] = useState<RData | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<unknown>(null);
+  const toast = useToast();
+  useEffect(() => { setDraft(null); setErr(null); }, [open]);
+  const saveDraft = async () => {
+    setBusy(true); setErr(null);
+    try { await api.put(`${base}/versions/${open}`, { data: draft }); toast("Version updated"); setDraft(null); full.reload(); onChanged(); }
+    catch (e) { setErr(e); } finally { setBusy(false); }
+  };
   if (state.versions.length === 0) return <div className="card"><p className="cap" style={{ fontSize: 15 }}>No versions yet. Tailor the resume for a job to save the first one.</p></div>;
   return (
     <div className="grid" style={{ gridTemplateColumns: "repeat(auto-fit,minmax(min(100%,380px),1fr))", gap: 20, alignItems: "start" }}>
       <div className="stack" style={{ gap: 10 }}>
         {!state.can_download && <div className="strip"><b>Locked</b><span>Downloads unlock after the first approval.</span></div>}
-        {state.versions.map((v) => <div key={v.id} className="act" style={{ background: open === v.id ? "var(--blue-tint)" : "#fff", alignItems: "center", gap: 12 }}>
+        {draft && <section className="stack" style={{ gap: 12 }}>
+          <div className="strip" style={{ background: "var(--blue-tint)" }}><b>Editing {full.data?.label}</b><span style={{ flex: 1 }} />
+            <button className="btn bg sm" onClick={() => setDraft(null)}>Cancel</button>
+            <button className="btn bp sm" disabled={busy} onClick={saveDraft}>{busy ? "Saving…" : "Save version"}</button></div>
+          <ErrorBox error={err} />
+          <Editor data={draft} onChange={setDraft} />
+        </section>}
+        {!draft && state.versions.map((v) => <div key={v.id} className="act" style={{ background: open === v.id ? "var(--blue-tint)" : "#fff", alignItems: "center", gap: 12 }}>
           <IFile size={20} />
-          <button style={{ flex: 1, textAlign: "left", background: "none", border: "none", cursor: "pointer", padding: 0, minWidth: 0 }} onClick={() => setOpen(v.id)}>
+          <button style={{ flex: 1, textAlign: "left", background: "none", border: "none", cursor: "pointer", padding: 0, minWidth: 0 }} onClick={() => { if (!draft || confirm("Discard your unsaved edits?")) setOpen(v.id); }}>
             <span style={{ display: "block", fontWeight: 700 }}>{v.label}</span>
             <span className="cap">{v.kind === "tailored" ? "Tailored" : "Master"} · {fmtDate(v.created_at)} · {state.templates[v.template]?.split(" (")[0]}{v.downloads ? ` · downloaded ${v.downloads}×` : ""}</span></button>
           {v.match_score != null && <span className="pill pa">{v.match_score}</span>}
@@ -610,8 +653,11 @@ function Versions({ base, state, onDownload, onPdf }: { base: string; state: Sta
         {!open ? <div className="card cap">Select a version to preview it.</div>
           : full.loading || !full.data ? <Spinner /> : <>
             <div className="between"><span className="lb" style={{ margin: 0 }}>{full.data.label}</span>
-              <button className="btn bg sm" disabled={!state.can_download} onClick={() => onPdf(full.data!)}>PDF</button></div>
-            <Preview data={full.data.data!} template={full.data.template} /></>}
+              <div style={{ display: "flex", gap: 8 }}>
+                {!draft && <button className="btn bp sm" onClick={() => setDraft(structuredClone(full.data!.data!))}>Edit</button>}
+                <button className="btn bg sm" disabled={!state.can_download || !!draft} onClick={() => onPdf(full.data!)}>PDF</button></div></div>
+            <Placeholders data={draft || full.data.data!} />
+            <Preview data={draft || full.data.data!} template={full.data.template} /></>}
       </div>
     </div>);
 }

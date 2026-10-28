@@ -147,3 +147,16 @@ def test_template_library(client, db, people):
     p = client.post("/api/v1/advisor/resume-templates/parse", headers=ha, json={"answer": json.dumps(RESUME)}).json()
     assert p["data"]["basics"]["email"] == "" and p["data"]["summary"]
     assert client.delete(f"/api/v1/advisor/resume-templates/{t['id']}", headers=ha).status_code == 200
+
+
+def test_student_can_edit_saved_version(client, db, people):
+    h = auth(people["student_user"])
+    data = _seed(client, h)
+    data["projects"][0]["bullets"].append("Served [number] users")
+    vid = client.post("/api/v1/students/me/resume/versions", headers=h, json={"label": "Acme", "data": data}).json()["id"]
+    data["projects"][0]["bullets"][-1] = "Served 40 users"
+    r = client.put(f"/api/v1/students/me/resume/versions/{vid}", headers=h, json={"data": data, "label": "Acme · edited"})
+    assert r.status_code == 200 and r.json()["data"]["projects"][0]["bullets"][-1] == "Served 40 users"
+    assert r.json()["label"] == "Acme · edited"
+    other = auth(people["admin"])
+    assert client.put(f"/api/v1/students/me/resume/versions/{vid}", headers=other, json={"label": "x" * 3}).status_code == 404
