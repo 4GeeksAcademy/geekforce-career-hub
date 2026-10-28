@@ -5,6 +5,7 @@ import { IBack } from "../components/Icons";
 import { ErrorBox, Spinner } from "../components/ui";
 import { relTime } from "../lib/format";
 import { useApi } from "../lib/useApi";
+import { StudioTabs } from "./ResumeTemplates";
 
 type Row = { id: string; name: string; cohort: string | null; stage: string | null; status: string; approved_at: string | null;
   updated_at: string | null; submitted_at: string | null; tailored: number; template: string | null };
@@ -27,6 +28,7 @@ export function StaffResumes() {
     <>
       <header className="top"><div><div className="kick">Resume Studio</div><h1>Build, review and <em>approve</em> resumes</h1></div></header>
       <div className="content">
+        <StudioTabs on="students" />
         <div className="stats">
           {([["in_review", "Waiting for review", "s-amber"], ["changes_requested", "Changes requested", "s-red"], ["none", "No resume yet", "s-cream"],
             ["approved", "Approved", "s-blue"]] as const).map(([k, l, c]) =>

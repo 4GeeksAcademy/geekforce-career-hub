@@ -38,42 +38,14 @@ const TEMPLATE_NOTE: Record<string, string> = {
   technical: "Skills and projects first. Best for career changers.",
 };
 
-// starter content for "start from a template": brackets are for the student to replace
-const STARTERS: Record<string, Partial<RData>> = {
-  "AI Engineering": {
-    summary: "AI Engineer trained at 4Geeks Academy. I build applications on top of large language models: RAG pipelines, agents and APIs in Python. [Your background and what you bring from it].",
-    skills: [{ group: "AI & LLMs", items: ["OpenAI / Anthropic APIs", "Prompt engineering", "RAG", "LangChain", "AI agents", "Embeddings"] },
-      { group: "Languages & data", items: ["Python", "SQL", "pandas"] }, { group: "Backend & tools", items: ["FastAPI", "Vector databases", "Docker", "Git"] }],
-    projects: [{ name: "[Final project name]", link: "", tech: "Python, FastAPI, LangChain, vector DB", bullets: ["[The problem it solves and for whom]", "[What you built: RAG over X documents, an agent that does Y]", "[Result: accuracy, response time, users, demo day]"] }],
-    education: [{ school: "4Geeks Academy", degree: "AI Engineering", start: "", end: "[MM/YYYY]", details: "" }],
-  },
-  "Full Stack": {
-    summary: "Full Stack Developer trained at 4Geeks Academy. I build web apps with React and Python, [one sentence about your background and what you bring from it].",
-    skills: [{ group: "Frontend", items: ["JavaScript", "React", "HTML", "CSS"] }, { group: "Backend", items: ["Python", "Flask", "SQL", "REST APIs"] },
-      { group: "Tools", items: ["Git", "GitHub", "Postman"] }],
-    projects: [{ name: "[Final project name]", link: "", tech: "React, Flask, PostgreSQL", bullets: ["[What it does and who it is for]", "[Your part: features you built]", "[A result: users, speed, demo day]"] }],
-    education: [{ school: "4Geeks Academy", degree: "Full Stack Software Development", start: "", end: "[MM/YYYY]", details: "" }],
-  },
-  "Data Science & ML": {
-    summary: "Data Scientist trained at 4Geeks Academy. I clean data, build models in Python and explain results to non-technical teams. [Your background].",
-    skills: [{ group: "Languages", items: ["Python", "SQL"] }, { group: "Data & ML", items: ["pandas", "NumPy", "scikit-learn", "Matplotlib"] },
-      { group: "Tools", items: ["Jupyter", "Git", "Streamlit"] }],
-    projects: [{ name: "[Final project name]", link: "", tech: "Python, scikit-learn, Streamlit", bullets: ["[The question the project answers]", "[Data used and model built]", "[Result: accuracy, insight, deployed app]"] }],
-    education: [{ school: "4Geeks Academy", degree: "Data Science & Machine Learning", start: "", end: "[MM/YYYY]", details: "" }],
-  },
-  Cybersecurity: {
-    summary: "Cybersecurity analyst trained at 4Geeks Academy. I monitor, detect and respond to threats. [Your background].",
-    skills: [{ group: "Security", items: ["Network security", "SIEM", "Incident response", "Vulnerability scanning"] },
-      { group: "Tools", items: ["Wireshark", "Nmap", "Kali Linux", "Splunk"] }, { group: "Systems", items: ["Linux", "Windows", "Bash"] }],
-    projects: [{ name: "[Lab or final project]", link: "", tech: "Kali Linux, Wireshark", bullets: ["[What you secured or tested]", "[Findings and fixes]"] }],
-    education: [{ school: "4Geeks Academy", degree: "Cybersecurity", start: "", end: "[MM/YYYY]", details: "" }],
-  },
-};
+export type ResumeTemplate = { id: string; name: string; program: string | null; description: string | null; layout: string;
+  active: boolean; position: number; data: RData; updated_at: string | null };
+export const LAYOUTS: Record<string, string> = { classic: "Classic", modern: "Modern", technical: "Technical (projects first)" };
 
-const EMPTY: RData = { basics: { name: "", headline: "", email: "", phone: "", location: "", links: [] }, summary: "", skills: [],
+export const EMPTY: RData = { basics: { name: "", headline: "", email: "", phone: "", location: "", links: [] }, summary: "", skills: [],
   experience: [], projects: [], education: [], certifications: [], languages: [] };
 
-async function copy(text: string) {
+export async function copy(text: string) {
   try { await navigator.clipboard.writeText(text); return true; } catch { return false; }
 }
 
@@ -91,6 +63,7 @@ export function ResumeWorkspace({ studentId, staff }: { studentId: string; staff
   const [importing, setImporting] = useState(false);
   const [decision, setDecision] = useState<"approve" | "changes" | null>(null);
   const [printData, setPrintData] = useState<{ data: RData; template: string } | null>(null);
+  const [saveTpl, setSaveTpl] = useState(false);
 
   useEffect(() => { if (st.data) { setData(st.data.data); setTemplate(st.data.template); setDirty(false); } }, [st.data]);
   useEffect(() => {
@@ -153,10 +126,10 @@ export function ResumeWorkspace({ studentId, staff }: { studentId: string; staff
       </div>
 
       {tab === "resume" && (empty
-        ? <StartPanel base={base} staff={staff} ai={s.ai} first={first} onStarter={(prog) => {
-            const st0 = STARTERS[prog];
-            edit({ ...EMPTY, ...st0, basics: { ...data.basics, headline: data.basics.headline || ({ "AI Engineering": "AI Engineer", Cybersecurity: "Cybersecurity Analyst", "Full Stack": "Full Stack Developer" }[prog] || "Data Scientist") } } as RData);
-            toast("Starter loaded. Replace everything in [brackets].");
+        ? <StartPanel base={base} staff={staff} ai={s.ai} first={first} onStarter={(t) => {
+            const b = data.basics;
+            edit({ ...EMPTY, ...structuredClone(t.data), basics: { ...b, headline: t.data.basics.headline || b.headline, location: b.location || t.data.basics.location } });
+            setTemplate(t.layout); toast(`"${t.name}" loaded. Replace everything in [brackets].`);
           }} onScratch={() => edit({ ...data, summary: " " })} importing={importing} setImporting={setImporting}
           onImported={() => { st.reload(); toast("Resume imported. Check every section."); }} />
         : <div className="grid no-print" style={{ gridTemplateColumns: "repeat(auto-fit,minmax(min(100%,440px),1fr))", gap: 20, alignItems: "start" }}>
@@ -164,6 +137,7 @@ export function ResumeWorkspace({ studentId, staff }: { studentId: string; staff
               <TemplatePicker value={template} templates={s.templates} onChange={(t) => { setTemplate(t); setDirty(true); }} />
               <Editor data={data} onChange={edit} />
               {(staff || s.comments.length > 0) && <Comments base={base} staff={staff} comments={s.comments} onChange={st.reload} />}
+              {staff && <div className="cap">Is this a great example? <button className="linkbtn" onClick={() => setSaveTpl(true)}>Save a copy as a template</button> so other students can start from it (contact details are removed).</div>}
               <div className="cap">Want to replace this with a new CV? <button className="linkbtn" onClick={() => edit({ ...EMPTY, basics: data.basics })}>Start over</button> (your current version is kept in Versions when you import).</div>
             </div>
             <div className="stack" style={{ gap: 12, position: "sticky", top: 16 }}>
@@ -184,6 +158,8 @@ export function ResumeWorkspace({ studentId, staff }: { studentId: string; staff
         onPdf={(v) => setPrintData({ data: v.data!, template: v.template })} /></div>}
 
       {printData && <div className="print-area"><Preview data={printData.data} template={printData.template} bare /></div>}
+      {saveTpl && <SaveTemplate data={data} layout={template} onClose={() => setSaveTpl(false)}
+        onDone={(n) => { setSaveTpl(false); toast(`Saved "${n}" to the template library`); }} />}
       {decision && <Decision base={`/advisor/students/${studentId}/resume`} kind={decision} first={first} firstApproval={!s.approved_at}
         beforeSave={dirty ? () => save(true) : undefined} onClose={() => setDecision(null)}
         onDone={(m) => { setDecision(null); toast(m); st.reload(); }} />}
@@ -192,9 +168,11 @@ export function ResumeWorkspace({ studentId, staff }: { studentId: string; staff
 
 // ── start: upload CV / template / scratch ──
 function StartPanel({ base, staff, ai, first, onStarter, onScratch, importing, setImporting, onImported }: {
-  base: string; staff?: boolean; ai: AiState; first: string; onStarter: (p: string) => void; onScratch: () => void;
+  base: string; staff?: boolean; ai: AiState; first: string; onStarter: (t: ResumeTemplate) => void; onScratch: () => void;
   importing: boolean; setImporting: (b: boolean) => void; onImported: () => void }) {
   const fileRef = useRef<HTMLInputElement>(null);
+  const tpls = useApi<ResumeTemplate[]>("/resume/templates");
+  const [peek, setPeek] = useState<ResumeTemplate | null>(null);
   const [up, setUp] = useState<{ text: string; prompt: string } | null>(null);
   const [answer, setAnswer] = useState("");
   const [busy, setBusy] = useState(false);
@@ -241,9 +219,12 @@ function StartPanel({ base, staff, ai, first, onStarter, onScratch, importing, s
         </section>
         <section className="card stack" style={{ gap: 12 }}>
           <span className="ynum">2</span><h2 className="h2" style={{ fontSize: 19 }}>Start from a template</h2>
-          <p className="cap" style={{ fontSize: 14 }}>A starter for the program with typical skills and a project. Replace what's in [brackets].</p>
+          <p className="cap" style={{ fontSize: 14 }}>Example resumes from the career team, with typical skills and a project. Replace what's in [brackets].</p>
           <div className="stack" style={{ gap: 8, marginTop: "auto" }}>
-            {Object.keys(STARTERS).map((p) => <button key={p} className="btn bg" onClick={() => onStarter(p)}>{p}</button>)}</div>
+            {tpls.loading && <Spinner />}
+            {tpls.data?.length === 0 && <span className="cap">No templates yet.</span>}
+            {tpls.data?.map((t) => <button key={t.id} className="btn bg" style={{ justifyContent: "space-between" }} onClick={() => setPeek(t)}>
+              <span>{t.name}</span>{t.program && <span className="cap" style={{ fontSize: 12 }}>{t.program}</span>}</button>)}</div>
         </section>
         <section className="card stack" style={{ gap: 12 }}>
           <span className="ynum">3</span><h2 className="h2" style={{ fontSize: 19 }}>Start from scratch</h2>
@@ -252,11 +233,19 @@ function StartPanel({ base, staff, ai, first, onStarter, onScratch, importing, s
         </section>
       </div>
       <ErrorBox error={err} />
+      {peek && <Modal title={peek.name} onClose={() => setPeek(null)}>
+        {peek.description && <p className="cap" style={{ fontSize: 14 }}>{peek.description}</p>}
+        <div style={{ maxHeight: "60vh", overflow: "auto", border: "1px solid var(--line)", borderRadius: 12 }}>
+          <Preview data={{ ...peek.data, basics: { ...peek.data.basics, name: peek.data.basics.name || "Your Name" } }} template={peek.layout} /></div>
+        <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
+          <button className="btn bg" onClick={() => setPeek(null)}>Back</button>
+          <button className="btn bp" onClick={() => { onStarter(peek); setPeek(null); }}>Use this template</button></div>
+      </Modal>}
     </div>);
 }
 
 /** The copy-paste flow: no hub tokens are used. */
-function PromptSteps({ prompt, what, answer, setAnswer, staff, first, onCopied }: {
+export function PromptSteps({ prompt, what, answer, setAnswer, staff, first, onCopied }: {
   prompt: string; what: string; answer: string; setAnswer: (s: string) => void; staff?: boolean; first: string; onCopied: () => void }) {
   return (
     <div className="stack" style={{ gap: 14 }}>
@@ -283,7 +272,7 @@ function PromptSteps({ prompt, what, answer, setAnswer, staff, first, onCopied }
 }
 
 // ── template picker ──
-function TemplatePicker({ value, templates, onChange }: { value: string; templates: Record<string, string>; onChange: (t: string) => void }) {
+export function TemplatePicker({ value, templates, onChange }: { value: string; templates: Record<string, string>; onChange: (t: string) => void }) {
   return (
     <section className="card stack" style={{ gap: 10 }}>
       <span className="lb" style={{ margin: 0 }}>Template</span>
@@ -308,7 +297,7 @@ function Thumb({ t }: { t: string }) {
 }
 
 // ── editor ──
-function Editor({ data, onChange }: { data: RData; onChange: (d: RData) => void }) {
+export function Editor({ data, onChange }: { data: RData; onChange: (d: RData) => void }) {
   const set = <K extends keyof RData>(k: K, v: RData[K]) => onChange({ ...data, [k]: v });
   const b = data.basics;
   const setB = (k: keyof RData["basics"], v: string) => set("basics", { ...b, [k]: v });
@@ -372,7 +361,7 @@ function Section({ title, children }: { title: string; children: React.ReactNode
   return <section className="card stack" style={{ gap: 12 }}><h3 className="h2" style={{ fontSize: 17 }}>{title}</h3>{children}</section>;
 }
 let uid = 0;
-function F({ label, v, on, ph, w }: { label: string; v: string; on: (v: string) => void; ph?: string; w?: number }) {
+export function F({ label, v, on, ph, w }: { label: string; v: string; on: (v: string) => void; ph?: string; w?: number }) {
   const id = useMemo(() => `f${++uid}`, []);
   return <div style={{ flex: w ? `0 0 ${w}px` : "1 1 160px", minWidth: 0 }}><label className="lb" htmlFor={id} style={{ fontSize: 12 }}>{label}</label>
     <input id={id} className="in" value={v} placeholder={ph} onChange={(e) => on(e.target.value)} /></div>;
@@ -675,5 +664,28 @@ function Decision({ base, kind, first, firstApproval, beforeSave, onClose, onDon
       <button className="btn bg" onClick={onClose}>Cancel</button>
       <button className={`btn ${kind === "approve" ? "by" : "bp"}`} disabled={busy || (kind === "changes" && note.trim().length < 5)} onClick={go}>
         {busy ? "Saving…" : kind === "approve" ? "Approve" : "Send to " + first}</button></div>
+  </Modal>;
+}
+
+function SaveTemplate({ data, layout, onClose, onDone }: { data: RData; layout: string; onClose: () => void; onDone: (name: string) => void }) {
+  const [name, setName] = useState(data.basics.headline || "");
+  const [program, setProgram] = useState("");
+  const [description, setDescription] = useState("");
+  const [err, setErr] = useState<unknown>(null);
+  const [busy, setBusy] = useState(false);
+  const go = async () => {
+    setBusy(true); setErr(null);
+    try { await api.post("/advisor/resume-templates", { name, program, description, data, layout, active: false }); onDone(name); }
+    catch (e) { setErr(e); } finally { setBusy(false); }
+  };
+  return <Modal title="Save as a template" onClose={onClose}>
+    <p className="cap" style={{ fontSize: 14 }}>A copy goes to the template library, hidden from students until you turn it on there. Name, email, phone and links are removed. Check the rest doesn't identify the student (employers, dates) before you publish it.</p>
+    <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+      <F label="Template name" v={name} on={setName} ph="AI Engineer · career changer" /><F label="Program" v={program} on={setProgram} ph="AI Engineering" /></div>
+    <F label="Short description (optional)" v={description} on={setDescription} ph="Strong projects section, retail background" />
+    <ErrorBox error={err} />
+    <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
+      <button className="btn bg" onClick={onClose}>Cancel</button>
+      <button className="btn bp" disabled={busy || name.trim().length < 2} onClick={go}>{busy ? "Saving…" : "Save template"}</button></div>
   </Modal>;
 }

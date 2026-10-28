@@ -11,7 +11,7 @@ from ..auth import current_user, require_staff, student_for
 from ..config import settings
 from ..db import get_db
 from ..models import (
-    AiUsage, Application, AuditLog, Job, ResumeComment, ResumeProfile, ResumeSnapshot, Student, User,
+    AiUsage, Application, AuditLog, Job, ResumeComment, ResumeProfile, ResumeSnapshot, ResumeTemplate, Student, User,
 )
 from ..notify import alert_advisor, notify_student
 from ..rules import get_rules
@@ -360,10 +360,10 @@ def resolve_comment(student_id: str, cid: str, user: User = Depends(current_user
 
 # ── staff: AI on our key, under the monthly budget ──
 
-def _charge(db: Session, user: User, st: Student, kind: str, tin: int, tout: int) -> None:
+def _charge(db: Session, user: User, st: Student | None, kind: str, tin: int, tout: int) -> None:
     r = get_rules(db)
     cost = tin / 1e6 * float(r.ai_price_input_per_mtok) + tout / 1e6 * float(r.ai_price_output_per_mtok)
-    db.add(AiUsage(user_id=user.id, student_id=st.id, kind=kind, model=settings.anthropic_model,
+    db.add(AiUsage(user_id=user.id, student_id=st.id if st else None, kind=kind, model=settings.anthropic_model,
                    input_tokens=tin, output_tokens=tout, cost_usd=round(cost, 5)))
 
 
@@ -437,3 +437,122 @@ def ai_usage(user: User = Depends(require_staff), db: Session = Depends(get_db))
     rows = db.execute(select(User.name, func.count(AiUsage.id), func.sum(AiUsage.cost_usd)).join(User, AiUsage.user_id == User.id)
                       .where(AiUsage.created_at >= start).group_by(User.name)).all()
     return {**_ai_state(db, user), "by_user": [{"name": n, "calls": c, "cost_usd": round(float(t or 0), 2)} for n, c, t in rows]}
+
+
+# ── template library: example resumes staff curate; students start from them ──
+
+def _tpl_dict(t: ResumeTemplate, full: bool = True) -> dict:
+    d = {"id": t.id, "name": t.name, "program": t.program, "description": t.description, "layout": t.layout,
+         "active": t.active, "position": t.position, "updated_at": iso(t.updated_at)}
+    if full:
+        d["data"] = t.data
+    return d
+
+
+@router.get("/resume/templates")
+def list_templates(all: bool = False, user: User = Depends(current_user), db: Session = Depends(get_db)):
+    q = select(ResumeTemplate).order_by(ResumeTemplate.position, ResumeTemplate.name)
+    if not (all and user.role != "student"):
+        q = q.where(ResumeTemplate.active.is_(True))
+    return [_tpl_dict(t) for t in db.scalars(q).all()]
+
+
+class TemplateIn(BaseModel):
+    name: str = Field(min_length=2, max_length=120)
+    program: str | None = Field(default=None, max_length=60)
+    description: str | None = Field(default=None, max_length=400)
+    data: dict
+    layout: str = Field("classic", pattern="^(classic|modern|technical)$")
+    active: bool = True
+
+
+def _clean_example(data: dict) -> dict:
+    """Templates never carry a real person's contact details: the student's own are filled in when they use one."""
+    d = R.normalize(data)
+    d["basics"] = {**d["basics"], "name": "", "email": "", "phone": "", "links": []}
+    return d
+
+
+@router.post("/advisor/resume-templates", status_code=201)
+def create_template(body: TemplateIn, user: User = Depends(require_staff), db: Session = Depends(get_db)):
+    if R.is_empty(body.data):
+        raise HTTPException(422, "Add some content (summary, skills, experience or projects) before saving the template.")
+    last = db.scalar(select(func.max(ResumeTemplate.position))) or 0
+    t = ResumeTemplate(name=body.name.strip(), program=(body.program or "").strip() or None,
+                       description=(body.description or "").strip() or None, data=_clean_example(body.data),
+                       layout=body.layout, active=body.active, position=last + 1, created_by=user.id)
+    db.add(t)
+    db.add(AuditLog(actor_id=user.id, action="resume_template_created", detail=t.name))
+    db.commit()
+    return _tpl_dict(t)
+
+
+@router.put("/advisor/resume-templates/{tid}")
+def update_template(tid: str, body: TemplateIn, user: User = Depends(require_staff), db: Session = Depends(get_db)):
+    t = db.get(ResumeTemplate, tid)
+    if not t:
+        raise HTTPException(404, "Template not found")
+    t.name, t.program, t.description = body.name.strip(), (body.program or "").strip() or None, (body.description or "").strip() or None
+    t.data, t.layout, t.active = _clean_example(body.data), body.layout, body.active
+    db.commit()
+    return _tpl_dict(t)
+
+
+class TemplateOrderIn(BaseModel):
+    ids: list[str]
+
+
+@router.post("/advisor/resume-templates/order")
+def order_templates(body: TemplateOrderIn, user: User = Depends(require_staff), db: Session = Depends(get_db)):
+    for i, tid in enumerate(body.ids):
+        t = db.get(ResumeTemplate, tid)
+        if t:
+            t.position = i
+    db.commit()
+    return {"ok": True}
+
+
+@router.delete("/advisor/resume-templates/{tid}")
+def delete_template(tid: str, user: User = Depends(require_staff), db: Session = Depends(get_db)):
+    t = db.get(ResumeTemplate, tid)
+    if not t:
+        raise HTTPException(404, "Template not found")
+    if user.role != "admin" and t.created_by != user.id:
+        raise HTTPException(403, "Only an admin or the person who created it can delete this template. You can hide it instead.")
+    db.add(AuditLog(actor_id=user.id, action="resume_template_deleted", detail=t.name))
+    db.delete(t)
+    db.commit()
+    return {"ok": True}
+
+
+@router.post("/advisor/resume-templates/upload")
+async def template_upload(file: UploadFile = File(...), user: User = Depends(require_staff)):
+    """Read an example CV: returns the text and the copy-paste prompt that turns it into a template."""
+    raw = await file.read()
+    if len(raw) > 5 * 1024 * 1024:
+        raise HTTPException(413, "That file is over 5 MB.")
+    text = extract_text(file.filename, raw)
+    if len(text) < 150:
+        raise HTTPException(422, "We could only read a few words from that file. Try the .docx version.")
+    return {"text": text[:20000], "prompt": R.import_prompt(text)}
+
+
+@router.post("/advisor/resume-templates/parse")
+def template_parse(body: AnswerIn, user: User = Depends(require_staff)):
+    """Paste back the AI's answer: returns the structured resume (not saved until you save the template)."""
+    data = R.normalize(R.parse_answer(body.answer))
+    if R.is_empty(data):
+        raise HTTPException(422, "The answer didn't include any resume content. Check you pasted the full answer.")
+    return {"data": _clean_example(data)}
+
+
+@router.post("/advisor/resume-templates/ai-import")
+def template_ai_import(body: AiImportIn, user: User = Depends(require_staff), db: Session = Depends(get_db)):
+    _check_budget(db, user)
+    text, tin, tout = R.run_claude(R.import_prompt(body.text))
+    _charge(db, user, None, "template_import", tin, tout)
+    db.commit()
+    data = R.normalize(R.parse_answer(text))
+    if R.is_empty(data):
+        raise HTTPException(502, "The AI didn't return resume content. Try again or use the copy-paste prompt.")
+    return {"data": _clean_example(data)}

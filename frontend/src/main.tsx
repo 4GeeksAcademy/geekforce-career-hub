@@ -16,6 +16,7 @@ import StaffStudents from "./pages/StaffStudents";
 import StaffStudent from "./pages/StaffStudent";
 import Onboarding from "./pages/Onboarding";
 import { StaffResume, StaffResumes } from "./pages/StaffResumes";
+import { TemplateEditor, TemplateLibrary } from "./pages/ResumeTemplates";
 import JobRadar from "./pages/JobRadar";
 import SetPassword from "./pages/SetPassword";
 import { AdminAudit, AdminPauses, AdminPeople, AdminRules } from "./pages/Admin";
@@ -50,6 +51,8 @@ function App() {
         <Route path="/staff/onboarding" element={<Onboarding />} />
         <Route path="/staff/jobs" element={<JobRadar />} />
         <Route path="/staff/resumes" element={<StaffResumes />} />
+        <Route path="/staff/resumes/templates" element={<TemplateLibrary />} />
+        <Route path="/staff/resumes/templates/:tid" element={<TemplateEditor />} />
         <Route path="/staff/resumes/:id" element={<StaffResume />} />
         <Route path="/admin" element={<AdminPauses />} />
         <Route path="/admin/rules" element={<AdminRules />} />

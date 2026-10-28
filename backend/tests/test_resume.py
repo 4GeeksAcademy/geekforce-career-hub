@@ -128,3 +128,22 @@ def test_templates_build_and_ats_safe():
         doc = Document(io.BytesIO(R.build_docx(data, t)))
         assert not doc.tables  # single column, no tables: parses cleanly in applicant tracking systems
         assert "Maria González" in doc.paragraphs[0].text
+
+
+def test_template_library(client, db, people):
+    ha, hs = auth(people["advisor"]), auth(people["student_user"])
+    r = client.post("/api/v1/advisor/resume-templates", headers=ha, json={
+        "name": "AI Engineer · career changer", "program": "AI Engineering", "layout": "technical", "active": False, "data": RESUME})
+    assert r.status_code == 201
+    t = r.json()
+    assert t["data"]["basics"]["name"] == "" and t["data"]["basics"]["email"] == ""  # contact details stripped
+    assert t["data"]["experience"][0]["company"] == "Publix"
+    assert client.get("/api/v1/resume/templates", headers=hs).json() == []  # hidden from students
+    assert len(client.get("/api/v1/resume/templates?all=true", headers=ha).json()) == 1
+    assert client.get("/api/v1/resume/templates?all=true", headers=hs).json() == []  # students can't see hidden ones
+    client.put(f"/api/v1/advisor/resume-templates/{t['id']}", headers=ha, json={**t, "active": True})
+    assert [x["name"] for x in client.get("/api/v1/resume/templates", headers=hs).json()] == ["AI Engineer · career changer"]
+    assert client.post("/api/v1/advisor/resume-templates", headers=hs, json={"name": "x" * 3, "data": RESUME}).status_code == 403
+    p = client.post("/api/v1/advisor/resume-templates/parse", headers=ha, json={"answer": json.dumps(RESUME)}).json()
+    assert p["data"]["basics"]["email"] == "" and p["data"]["summary"]
+    assert client.delete(f"/api/v1/advisor/resume-templates/{t['id']}", headers=ha).status_code == 200

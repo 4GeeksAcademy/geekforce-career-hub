@@ -380,3 +380,18 @@ class AiUsage(TimestampMixin, Base):
     input_tokens: Mapped[int] = mapped_column(Integer, default=0)
     output_tokens: Mapped[int] = mapped_column(Integer, default=0)
     cost_usd: Mapped[float] = mapped_column(Float, default=0)
+
+
+class ResumeTemplate(TimestampMixin, Base):
+    """Example resumes staff curate; students start from them ("Start from a template")."""
+    __tablename__ = "resume_templates"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    name: Mapped[str] = mapped_column(String(120))
+    program: Mapped[str | None] = mapped_column(String(60))
+    description: Mapped[str | None] = mapped_column(String(400))
+    data: Mapped[dict] = mapped_column(JSON)
+    layout: Mapped[str] = mapped_column(String(20), default="classic")  # classic | modern | technical
+    active: Mapped[bool] = mapped_column(Boolean, default=True)  # visible to students
+    position: Mapped[int] = mapped_column(Integer, default=0)
+    created_by: Mapped[str | None] = mapped_column(ForeignKey("users.id"))
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
