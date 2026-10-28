@@ -10,7 +10,7 @@ export interface StudentBrief {
   reschedules_used?: number; missed_meetings?: number; payments_behind?: boolean | null;
   status_reason?: string | null; status_changed_at?: string | null;
 }
-export interface Me { id: string; email: string; name: string; initials: string; role: Role; student: StudentBrief | null }
+export interface Me { id: string; email: string; name: string; initials: string; role: Role; language?: "en" | "es"; language_set?: boolean; student: StudentBrief | null }
 
 export interface PointsEvent {
   id: string; type: string; title: string; delta: number; applied_delta: number; balance_after: number;

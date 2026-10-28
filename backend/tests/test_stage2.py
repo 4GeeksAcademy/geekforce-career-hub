@@ -202,7 +202,7 @@ def test_jobs_ingest_dedupe_fits_and_share(client, db, people, monkeypatch):
                      json={"student_ids": [st.id], "note": "Great match for your React work"}).json()
     assert sh["shared"] == 1
     n = db.scalar(select(Notification).where(Notification.title.like("%shared a job%")))
-    assert n.link.startswith("https://www.linkedin.com/jobs/view/123")
+    assert n.link == "/jobs"
     client.patch(f"/api/v1/advisor/jobs/{job.id}", headers=h, json={"outreach_status": "replied"})
     db.expire_all()
     assert db.get(Job, job.id).outreach_status == "replied"

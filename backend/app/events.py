@@ -15,6 +15,7 @@ from sqlalchemy import event
 from sqlalchemy.orm import Session
 
 from .config import settings
+from .i18n import lang_of
 
 log = logging.getLogger("geekforce.events")
 _pool = ThreadPoolExecutor(max_workers=2)
@@ -26,7 +27,7 @@ def student_payload(st) -> dict:
             "enrollment_plan": st.enrollment_plan, "advisor": st.advisor.name if st.advisor else None,
             "advisor_email": st.advisor.email if st.advisor else None,
             "cohort": st.cohort.name if st.cohort else None, "program": st.cohort.program if st.cohort else None,
-            "notion_page_id": st.notion_page_id,
+            "notion_page_id": st.notion_page_id, "language": lang_of(st.user),
             "hub_url": f"{settings.app_url.rstrip('/')}/staff/students/{st.id}"}
 
 

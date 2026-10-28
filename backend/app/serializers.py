@@ -1,4 +1,5 @@
 """Plain-dict serializers shared by the routers."""
+from .i18n import D, L
 from datetime import timedelta
 
 from sqlalchemy import func, select
@@ -120,32 +121,33 @@ def guarantee_conditions(db: DB, st: Student, r: Rules) -> list[dict]:
 
     offers = db.scalars(select(Application).where(Application.student_id == st.id, Application.status == "offer")).all()
     gap = r.secured_threshold - st.career_points
+    hw = st.consecutive_homework_misses
+    lp = L("Last post {date}. ", date=D(last_post)) if last_post else L("No posts logged yet. ")
+    lo = L("Last outreach {date}. ", date=D(last_out)) if last_out else L("No outreach logged yet. ")
+    wt = weekly_target(st, r)
     return [
-        {"key": "points", "title": f"Stay at {r.secured_threshold} points or more",
-         "detail": f"You are at {st.career_points}. Below {r.suspended_below} your guarantee is suspended.",
-         "ok": gap <= 0, "badge": "On track" if gap <= 0 else f"{gap} pts short"},
-        {"key": "applications", "title": f"Hit {weekly_target(st, r)} applications each week",
-         "detail": f"{apps} so far this week. Closes Sunday 11:59 PM.",
-         "ok": apps >= weekly_target(st, r), "badge": f"{apps} / {weekly_target(st, r)}"},
-        {"key": "homework", "title": "Do your homework before each meeting",
-         "detail": ("No misses in a row." if st.consecutive_homework_misses == 0 else
-                    f"{st.consecutive_homework_misses} miss in a row. A second miss adds {r.ded_homework_streak}."),
-         "ok": st.consecutive_homework_misses == 0,
-         "badge": "Clear" if st.consecutive_homework_misses == 0 else f"{st.consecutive_homework_misses} in a row"},
-        {"key": "meetings", "title": f"Miss no more than {r.max_missed_meetings} meetings",
-         "detail": f"{st.missed_meetings} unexcused miss(es) so far.",
+        {"key": "points", "title": L("Stay at {n} points or more", n=r.secured_threshold),
+         "detail": L("You are at {points}. Below {below} your guarantee is suspended.", points=st.career_points, below=r.suspended_below),
+         "ok": gap <= 0, "badge": L("On track") if gap <= 0 else L("{n} pts short", n=gap)},
+        {"key": "applications", "title": L("Hit {n} applications each week", n=wt),
+         "detail": L("{n} so far this week. Closes Sunday 11:59 PM.", n=apps),
+         "ok": apps >= wt, "badge": f"{apps} / {wt}"},
+        {"key": "homework", "title": L("Do your homework before each meeting"),
+         "detail": (L("No misses in a row.") if hw == 0 else
+                    L("{n} miss in a row. A second miss adds {pts}.", n=hw, pts=r.ded_homework_streak)),
+         "ok": hw == 0, "badge": L("Clear") if hw == 0 else L("{n} in a row", n=hw)},
+        {"key": "meetings", "title": L("Miss no more than {n} meetings", n=r.max_missed_meetings),
+         "detail": L("{n} unexcused miss(es) so far.", n=st.missed_meetings),
          "ok": st.missed_meetings < r.max_missed_meetings, "badge": f"{st.missed_meetings} / {r.max_missed_meetings}"},
-        {"key": "linkedin", "title": "Stay active on LinkedIn",
-         "detail": (f"Last post {last_post:%b %d}. " if last_post else "No posts logged yet. ") +
-                   f"Post by {by(last_post, r.linkedin_inactive_days):%b %d}.",
+        {"key": "linkedin", "title": L("Stay active on LinkedIn"),
+         "detail": lp + L("Post by {date}.", date=D(by(last_post, r.linkedin_inactive_days))),
          "ok": (today - max([d for d in (last_post, start) if d])).days < r.linkedin_inactive_days - 3, "badge": None},
-        {"key": "outreach", "title": "Keep reaching out to recruiters",
-         "detail": (f"Last outreach {last_out:%b %d}. " if last_out else "No outreach logged yet. ") +
-                   f"Log one by {by(last_out, r.outreach_inactive_days):%b %d}.",
+        {"key": "outreach", "title": L("Keep reaching out to recruiters"),
+         "detail": lo + L("Log one by {date}.", date=D(by(last_out, r.outreach_inactive_days))),
          "ok": (today - max([d for d in (last_out, start) if d])).days < r.outreach_inactive_days - 3, "badge": None},
-        {"key": "offers", "title": "Don't reject a valid offer without a reason",
-         "detail": (f"Open offer: {offers[0].company}. Talk to your advisor before deciding." if offers
-                    else "No open offers."), "ok": True, "badge": "Clear"},
+        {"key": "offers", "title": L("Don't reject a valid offer without a reason"),
+         "detail": (L("Open offer: {company}. Talk to your advisor before deciding.", company=offers[0].company) if offers
+                    else L("No open offers.")), "ok": True, "badge": L("Clear")},
     ]
 
 
@@ -158,37 +160,37 @@ def next_actions(db: DB, st: Student, r: Rules) -> list[dict]:
     if remaining:
         n_gap = -(-gap // r.pts_application) if gap else 0
         if gap and n_gap <= remaining:
-            acts.append({"title": f"Apply to {n_gap} more job{'s' if n_gap != 1 else ''} today",
-                         "why": f"Puts you back at {r.secured_threshold} and secures your guarantee.",
+            acts.append({"title": L("Apply to {n} more job(s) today", n=n_gap),
+                         "why": L("Puts you back at {n} and secures your guarantee.", n=r.secured_threshold),
                          "points": n_gap * r.pts_application, "link": "/tracker"})
         else:
-            acts.append({"title": f"Apply to {remaining} more jobs by Sunday",
-                         "why": f"+{remaining * r.pts_application} pts, a +{r.pts_weekly_bonus} bonus, and no "
-                                f"−{abs(r.ded_weekly_target_missed)} on Monday.",
+            acts.append({"title": L("Apply to {n} more jobs by Sunday", n=remaining),
+                         "why": L("+{pts} pts, a +{bonus} bonus, and no −{penalty} on Monday.", pts=remaining * r.pts_application,
+                                  bonus=r.pts_weekly_bonus, penalty=abs(r.ded_weekly_target_missed)),
                          "points": remaining * r.pts_application + r.pts_weekly_bonus, "link": "/tracker"})
     pending = db.scalars(select(HomeworkTask).where(HomeworkTask.student_id == st.id,
                                                     HomeworkTask.status == "pending")).all()
     if pending:
         pts = sum(t.point_value for t in pending)
-        acts.append({"title": f"Finish your {len(pending)} homework task{'s' if len(pending) > 1 else ''}",
-                     "why": f"Earns +{pts} and avoids −{abs(len(pending) * r.ded_homework_missed)} at your next meeting.",
+        acts.append({"title": L("Finish your {n} homework task(s)", n=len(pending)),
+                     "why": L("Earns +{pts} and avoids −{loss} at your next meeting.", pts=pts, loss=abs(len(pending) * r.ded_homework_missed)),
                      "points": pts, "link": "/advisor"})
     originals = db.scalar(select(func.count(ActivityLog.id)).where(
         ActivityLog.student_id == st.id, ActivityLog.kind == "linkedin_post", ActivityLog.post_type == "original",
         ActivityLog.occurred_on >= monday, ActivityLog.status == "active")) or 0
     if originals == 0:
-        acts.append({"title": "Publish one original LinkedIn post",
-                     "why": f"Your weekly requirement. Up to {r.cap_linkedin_posts_week} posts earn points.",
+        acts.append({"title": L("Publish one original LinkedIn post"),
+                     "why": L("Your weekly requirement. Up to {n} posts earn points.", n=r.cap_linkedin_posts_week),
                      "points": r.pts_linkedin_post, "link": "/tracker#linkedin"})
     if activities_in_week(db, st.id, "outreach", monday, awarded_only=True) < r.cap_outreach_week:
-        acts.append({"title": "Message a recruiter and log it",
-                     "why": f"Up to {r.cap_outreach_week} messages a week earn points.",
+        acts.append({"title": L("Message a recruiter and log it"),
+                     "why": L("Up to {n} messages a week earn points.", n=r.cap_outreach_week),
                      "points": r.pts_outreach, "link": "/tracker#outreach"})
     done = {t for (t,) in db.execute(select(ProfileTask.task).where(ProfileTask.student_id == st.id))}
     missing = [t for t in ("cv", "github", "linkedin", "headshot") if t not in done]
     if missing:
-        acts.append({"title": f"Complete {len(missing)} profile task{'s' if len(missing) > 1 else ''}",
-                     "why": "CV, GitHub, LinkedIn and headshot each earn points once.",
+        acts.append({"title": L("Complete {n} profile task(s)", n=len(missing)),
+                     "why": L("CV, GitHub, LinkedIn and headshot each earn points once."),
                      "points": len(missing) * r.pts_profile_task, "link": "/resume"})
     return acts[:4]
 

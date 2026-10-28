@@ -17,6 +17,7 @@ import threading
 import httpx
 
 from ..config import settings
+from ..i18n import lang_of
 
 log = logging.getLogger("geekforce.ac")
 
@@ -30,6 +31,7 @@ FIELDS = {  # perstag → title
     "GF_ALERT_BODY": "GeekForce · Last alert message",
     "GF_ALERT_LINK": "GeekForce · Last alert link",
     "GF_LOGIN_LINK": "GeekForce · Login link",
+    "GF_LANG": "GeekForce · Language (en/es)",
 }
 STATUS_TAGS = {"secured": "GF Secured", "at_risk": "GF At risk", "suspended": "GF Suspended",
                "not_eligible": "GF Professional Support", "hired": "GF Hired"}
@@ -147,6 +149,7 @@ def student_fields(student) -> dict:
         "GF_POINTS": student.career_points, "GF_STATUS": student.guarantee_status, "GF_STAGE": student.stage or "",
         "GF_ADVISOR": student.advisor.name if student.advisor else "",
         "GF_COHORT": student.cohort.name if student.cohort else "",
+        "GF_LANG": lang_of(student.user),
     }
 
 

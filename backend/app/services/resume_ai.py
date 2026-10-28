@@ -53,11 +53,26 @@ RULES = """Rules:
 - Answer with ONLY the JSON below, no explanations before or after it."""
 
 
-def import_prompt(cv_text: str) -> str:
+LANG_NAME = {"en": "English (US)", "es": "Spanish (neutral, understood in Latin America and Spain)"}
+HEADINGS = {
+    "en": {"Summary": "Summary", "Skills": "Skills", "Experience": "Experience", "Projects": "Projects",
+           "Education": "Education", "Certifications": "Certifications", "Languages": "Languages", "Your Name": "Your Name"},
+    "es": {"Summary": "Perfil profesional", "Skills": "Habilidades", "Experience": "Experiencia", "Projects": "Proyectos",
+           "Education": "Educación", "Certifications": "Certificaciones", "Languages": "Idiomas", "Your Name": "Tu nombre"},
+}
+
+
+def _lang_rule(lang: str | None, what: str) -> str:
+    if lang not in LANG_NAME:
+        return ""
+    return f"- Write {what} in {LANG_NAME[lang]}. If the source is in another language, translate it faithfully.\n"
+
+
+def import_prompt(cv_text: str, lang: str | None = None) -> str:
     return f"""You are a career coach at 4Geeks Academy. Convert the resume below into structured data.
 {RULES}
 - Keep every job, project and school. Keep bullets as close to the original as possible.
-
+{_lang_rule(lang, "all resume content (not the JSON keys)")}
 Answer with JSON in exactly this format:
 {SCHEMA_TEXT}
 
@@ -67,7 +82,7 @@ RESUME:
 \"\"\""""
 
 
-def tailor_prompt(data: dict, job_text: str, job_title: str = "", company: str = "") -> str:
+def tailor_prompt(data: dict, job_text: str, job_title: str = "", company: str = "", lang: str | None = None) -> str:
     return f"""You are a senior tech career coach at 4Geeks Academy. Tailor this candidate's resume to the job below.
 {RULES}
 - Suggest at most 10 changes. Prefer rewriting the summary, the headline, skills order and the weakest bullets.
@@ -75,7 +90,7 @@ def tailor_prompt(data: dict, job_text: str, job_title: str = "", company: str =
   "basics.headline", "summary", "skills.0.items", "experience.0.bullets.2", "projects.1.bullets.0".
   To add a new bullet at the end of a list use the index "+", for example "experience.0.bullets.+".
 - "before" must copy the current text exactly ("" when adding). For "skills.N.items" use a list of strings.
-
+{_lang_rule(lang, '"after", "reason", "summary_of_fit" and the missing keywords')}
 Answer with JSON in exactly this format:
 {{
   "match_score": 0-100,
@@ -239,7 +254,8 @@ def run_claude(prompt: str, max_tokens: int = 4000) -> tuple[str, int, int]:
 
 # ── documents (single column, no tables: safe for applicant tracking systems) ──
 
-def build_docx(data: dict, template: str = "classic") -> bytes:
+def build_docx(data: dict, template: str = "classic", lang: str = "en") -> bytes:
+    H = HEADINGS.get(lang, HEADINGS["en"])
     import docx
     from docx.enum.text import WD_ALIGN_PARAGRAPH
     from docx.shared import Pt, RGBColor, Inches
@@ -271,7 +287,7 @@ def build_docx(data: dict, template: str = "classic") -> bytes:
         return p
 
     b = d["basics"]
-    para(b["name"] or "Your Name", 22 if template != "classic" else 20, True, accent if template == "modern" else ink, align_center=center)
+    para(b["name"] or H["Your Name"], 22 if template != "classic" else 20, True, accent if template == "modern" else ink, align_center=center)
     if b["headline"]:
         para(b["headline"], 12, False, accent, align_center=center)
     contact = " · ".join(x for x in [b["location"], b["email"], b["phone"], *[l["url"] for l in b["links"]]] if x)
@@ -287,12 +303,12 @@ def build_docx(data: dict, template: str = "classic") -> bytes:
 
     def sec_summary():
         if d["summary"]:
-            heading("Summary")
+            heading(H["Summary"])
             para(d["summary"])
 
     def sec_skills():
         if d["skills"]:
-            heading("Skills")
+            heading(H["Skills"])
             for g in d["skills"]:
                 p = doc.add_paragraph()
                 if g["group"]:
@@ -302,7 +318,7 @@ def build_docx(data: dict, template: str = "classic") -> bytes:
 
     def sec_experience():
         if d["experience"]:
-            heading("Experience")
+            heading(H["Experience"])
             for e in d["experience"]:
                 p = doc.add_paragraph()
                 p.paragraph_format.space_before = Pt(4)
@@ -315,7 +331,7 @@ def build_docx(data: dict, template: str = "classic") -> bytes:
 
     def sec_projects():
         if d["projects"]:
-            heading("Projects")
+            heading(H["Projects"])
             for pr in d["projects"]:
                 p = doc.add_paragraph()
                 p.paragraph_format.space_before = Pt(4)
@@ -328,7 +344,7 @@ def build_docx(data: dict, template: str = "classic") -> bytes:
 
     def sec_education():
         if d["education"]:
-            heading("Education")
+            heading(H["Education"])
             for e in d["education"]:
                 p = doc.add_paragraph()
                 r = p.add_run(" · ".join(x for x in [e["degree"], e["school"]] if x))
@@ -341,11 +357,11 @@ def build_docx(data: dict, template: str = "classic") -> bytes:
 
     def sec_extra():
         if d["certifications"]:
-            heading("Certifications")
+            heading(H["Certifications"])
             for c in d["certifications"]:
                 para(" · ".join(x for x in [c["name"], c["issuer"], c["date"]] if x))
         if d["languages"]:
-            heading("Languages")
+            heading(H["Languages"])
             para(", ".join(d["languages"]))
 
     order = ([sec_summary, sec_skills, sec_projects, sec_experience, sec_education, sec_extra] if template == "technical"

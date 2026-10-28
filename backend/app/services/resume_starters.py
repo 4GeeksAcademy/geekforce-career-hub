@@ -47,3 +47,52 @@ STARTERS = [
                             "bullets": ["[What you secured or tested]", "[Findings and fixes]"]}],
               "education": _edu("Cybersecurity")}},
 ]
+
+
+def _edu_es(degree):
+    return [{"school": "4Geeks Academy", "degree": degree, "start": "", "end": "[MM/AAAA]", "details": ""}]
+
+
+STARTERS_ES = [
+    {"name": "AI Engineer (español)", "program": "AI Engineering", "layout": "technical",
+     "description": "Apps con LLM, RAG y agentes en Python. Proyectos primero.",
+     "data": {"basics": {"headline": "AI Engineer"},
+              "summary": "AI Engineer formado en 4Geeks Academy. Construyo aplicaciones sobre modelos de lenguaje: pipelines RAG, agentes y APIs en Python. [Tu experiencia previa y lo que aportas desde ella].",
+              "skills": [{"group": "IA y LLM", "items": ["APIs de OpenAI / Anthropic", "Prompt engineering", "RAG", "LangChain", "Agentes de IA", "Embeddings"]},
+                         {"group": "Lenguajes y datos", "items": ["Python", "SQL", "pandas"]},
+                         {"group": "Backend y herramientas", "items": ["FastAPI", "Bases de datos vectoriales", "Docker", "Git"]}],
+              "projects": [{"name": "[Nombre del proyecto final]", "tech": "Python, FastAPI, LangChain, base vectorial",
+                            "bullets": ["[El problema que resuelve y para quién]", "[Lo que construiste: RAG sobre X documentos, un agente que hace Y]",
+                                        "[Resultado: precisión, tiempo de respuesta, usuarios, demo day]"]}],
+              "education": _edu_es("AI Engineering"), "languages": ["Español (nativo)", "Inglés ([nivel])"]}},
+    {"name": "Full Stack Developer (español)", "program": "Full Stack", "layout": "classic",
+     "description": "Apps web con React y Python.",
+     "data": {"basics": {"headline": "Desarrollador Full Stack"},
+              "summary": "Desarrollador Full Stack formado en 4Geeks Academy. Construyo aplicaciones web con React y Python. [Una frase sobre tu experiencia previa y lo que aportas desde ella].",
+              "skills": [{"group": "Frontend", "items": ["JavaScript", "React", "HTML", "CSS"]},
+                         {"group": "Backend", "items": ["Python", "Flask", "SQL", "APIs REST"]},
+                         {"group": "Herramientas", "items": ["Git", "GitHub", "Postman"]}],
+              "projects": [{"name": "[Nombre del proyecto final]", "tech": "React, Flask, PostgreSQL",
+                            "bullets": ["[Qué hace y para quién es]", "[Tu parte: funcionalidades que construiste]", "[Un resultado: usuarios, velocidad, demo day]"]}],
+              "education": _edu_es("Desarrollo de Software Full Stack"), "languages": ["Español (nativo)", "Inglés ([nivel])"]}},
+    {"name": "Data Scientist (español)", "program": "Data Science & ML", "layout": "classic",
+     "description": "Python, modelos e insights claros.",
+     "data": {"basics": {"headline": "Data Scientist"},
+              "summary": "Data Scientist formado en 4Geeks Academy. Limpio datos, construyo modelos en Python y explico los resultados a equipos no técnicos. [Tu experiencia previa].",
+              "skills": [{"group": "Lenguajes", "items": ["Python", "SQL"]},
+                         {"group": "Datos y ML", "items": ["pandas", "NumPy", "scikit-learn", "Matplotlib"]},
+                         {"group": "Herramientas", "items": ["Jupyter", "Git", "Streamlit"]}],
+              "projects": [{"name": "[Nombre del proyecto final]", "tech": "Python, scikit-learn, Streamlit",
+                            "bullets": ["[La pregunta que responde el proyecto]", "[Datos usados y modelo construido]", "[Resultado: precisión, insight, app publicada]"]}],
+              "education": _edu_es("Data Science y Machine Learning"), "languages": ["Español (nativo)", "Inglés ([nivel])"]}},
+    {"name": "Analista de Ciberseguridad", "program": "Cybersecurity", "layout": "classic",
+     "description": "Monitoreo, detección y respuesta.",
+     "data": {"basics": {"headline": "Analista de Ciberseguridad"},
+              "summary": "Analista de ciberseguridad formado en 4Geeks Academy. Monitoreo, detecto y respondo a amenazas. [Tu experiencia previa].",
+              "skills": [{"group": "Seguridad", "items": ["Seguridad de redes", "SIEM", "Respuesta a incidentes", "Análisis de vulnerabilidades"]},
+                         {"group": "Herramientas", "items": ["Wireshark", "Nmap", "Kali Linux", "Splunk"]},
+                         {"group": "Sistemas", "items": ["Linux", "Windows", "Bash"]}],
+              "projects": [{"name": "[Laboratorio o proyecto final]", "tech": "Kali Linux, Wireshark",
+                            "bullets": ["[Qué aseguraste o probaste]", "[Hallazgos y soluciones]"]}],
+              "education": _edu_es("Ciberseguridad"), "languages": ["Español (nativo)", "Inglés ([nivel])"]}},
+]

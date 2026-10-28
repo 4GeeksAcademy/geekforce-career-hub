@@ -33,6 +33,7 @@ class User(TimestampMixin, Base):
     external_provider: Mapped[str | None] = mapped_column(String(40))  # "breathcode" in phase 2
     external_id: Mapped[str | None] = mapped_column(String(64), index=True)
     last_login_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    language: Mapped[str | None] = mapped_column(String(5))  # en | es; None = default (Spanish for LATAM/Spain cohorts)
 
     student: Mapped["Student | None"] = relationship(
         back_populates="user", foreign_keys="Student.user_id", uselist=False
@@ -333,6 +334,7 @@ class ResumeProfile(Base):
     student_id: Mapped[str] = mapped_column(ForeignKey("students.id"), unique=True)
     data: Mapped[dict] = mapped_column(JSON)
     template: Mapped[str] = mapped_column(String(20), default="classic")
+    lang: Mapped[str] = mapped_column(String(5), default="en")  # language the resume is written in
     status: Mapped[str] = mapped_column(String(20), default="draft")  # draft | in_review | changes_requested | approved
     submitted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     approved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))  # first approval unlocks downloads
@@ -350,6 +352,7 @@ class ResumeSnapshot(TimestampMixin, Base):
     label: Mapped[str] = mapped_column(String(255))
     data: Mapped[dict] = mapped_column(JSON)
     template: Mapped[str] = mapped_column(String(20), default="classic")
+    lang: Mapped[str] = mapped_column(String(5), default="en")
     job_title: Mapped[str | None] = mapped_column(String(255))
     company: Mapped[str | None] = mapped_column(String(255))
     application_id: Mapped[str | None] = mapped_column(ForeignKey("applications.id"))
@@ -391,7 +394,26 @@ class ResumeTemplate(TimestampMixin, Base):
     description: Mapped[str | None] = mapped_column(String(400))
     data: Mapped[dict] = mapped_column(JSON)
     layout: Mapped[str] = mapped_column(String(20), default="classic")  # classic | modern | technical
+    lang: Mapped[str] = mapped_column(String(5), default="en")
     active: Mapped[bool] = mapped_column(Boolean, default=True)  # visible to students
     position: Mapped[int] = mapped_column(Integer, default=0)
     created_by: Mapped[str | None] = mapped_column(ForeignKey("users.id"))
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+
+class JobShare(TimestampMixin, Base):
+    """A Job Radar job an advisor shared with one student; the student sees it in "Jobs for you"."""
+    __tablename__ = "job_shares"
+    __table_args__ = (UniqueConstraint("job_id", "student_id", name="uq_job_share"),)
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    job_id: Mapped[str] = mapped_column(ForeignKey("jobs.id"), index=True)
+    student_id: Mapped[str] = mapped_column(ForeignKey("students.id"), index=True)
+    shared_by: Mapped[str | None] = mapped_column(ForeignKey("users.id"))
+    note: Mapped[str | None] = mapped_column(Text)
+    status: Mapped[str] = mapped_column(String(20), default="new")  # new | interested | applied | not_a_fit
+    response_note: Mapped[str | None] = mapped_column(String(500))
+    seen_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    responded_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    application_id: Mapped[str | None] = mapped_column(ForeignKey("applications.id"))
+
+    job: Mapped["Job"] = relationship()

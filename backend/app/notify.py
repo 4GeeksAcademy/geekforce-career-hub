@@ -9,6 +9,7 @@ from concurrent.futures import ThreadPoolExecutor
 from sqlalchemy import event, select
 from sqlalchemy.orm import Session
 
+from .i18n import lang_of, tr
 from .models import Notification, NotificationPreference, Student, User
 from .services import activecampaign as ac
 from .services.brevo import send_email
@@ -44,6 +45,8 @@ def notify_user(db: Session, user: User, *, type: str, category: str, title: str
                 pref_key: str = "guarantee", email: bool = True, link: str | None = None) -> Notification | None:
     if not preference_enabled(db, user.id, pref_key):
         return None
+    lang = lang_of(user)
+    title, body = tr(title, lang), tr(body, lang)
     n = Notification(user_id=user.id, type=type, category=category, title=title, body=body, link=link)
     db.add(n)
     if email:

@@ -1,3 +1,4 @@
+import { lang } from "./i18n";
 const BASE = (import.meta.env.VITE_API_URL || "") + "/api/v1";
 const TOKEN_KEY = "gf_token";
 
@@ -16,7 +17,7 @@ export class ApiError extends Error {
 }
 
 async function request<T>(method: string, path: string, body?: unknown, isForm = false): Promise<T> {
-  const headers: Record<string, string> = {};
+  const headers: Record<string, string> = { "X-Lang": lang() };
   const token = getToken();
   if (token) headers.Authorization = `Bearer ${token}`;
   if (body !== undefined && !isForm) headers["Content-Type"] = "application/json";

@@ -44,6 +44,17 @@ origins = [o.strip() for o in settings.cors_origins.split(",") if o.strip()]
 app.add_middleware(CORSMiddleware, allow_origins=origins or ["*"], allow_origin_regex=r"chrome-extension://.*",
                    allow_credentials=False, allow_methods=["*"], allow_headers=["*"])
 
+@app.middleware("http")
+async def language(request, call_next):
+    from .i18n import LANGS, request_lang
+    lang = (request.headers.get("x-lang") or "").lower()[:2]
+    token = request_lang.set(lang if lang in LANGS else "en")
+    try:
+        return await call_next(request)
+    finally:
+        request_lang.reset(token)
+
+
 API = "/api/v1"
 for r in (auth_routes.router, student_routes.router, staff_routes.router, jobs_routes.router, resume_routes.router, admin_routes.router,
           admin_routes.cron_router):

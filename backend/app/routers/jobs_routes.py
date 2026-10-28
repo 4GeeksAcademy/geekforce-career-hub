@@ -7,12 +7,13 @@ from pydantic import BaseModel, Field
 from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
-from .. import job_radar as JR
-from ..auth import require_staff
+from .. import engine, job_radar as JR
+from ..auth import current_user, require_staff, student_for
 from ..config import settings
 from ..db import get_db
-from ..models import AuditLog, Job, Student, User
-from ..notify import notify_student
+from ..i18n import Cat, M
+from ..models import AuditLog, Job, JobShare, Student, User
+from ..notify import notify_student, notify_user
 from ..serializers import iso
 from ..timeutil import now_utc
 
@@ -158,30 +159,137 @@ def job_fits(job_id: str, user: User = Depends(require_staff), db: Session = Dep
 
 
 class ShareIn(BaseModel):
-    student_ids: list[str] = Field(min_length=1, max_length=50)
+    student_ids: list[str] = Field(default_factory=list, max_length=500)
+    cohort_id: str | None = None          # share with a whole group instead of (or as well as) picked students
+    program: str | None = None
+    stage: str | None = None
     note: str | None = Field(default=None, max_length=1000)
 
 
+def _share_targets(db: Session, user: User, body: ShareIn) -> list[Student]:
+    """Picked students plus everyone in the chosen group; advisors reach only their own students, admins everyone."""
+    q = select(Student).join(User, Student.user_id == User.id).where(User.is_active.is_(True), Student.status == "active")
+    if user.role != "admin":
+        q = q.where(Student.advisor_id == user.id)
+    picked = []
+    if body.student_ids:
+        picked = list(db.scalars(q.where(Student.id.in_(body.student_ids))).all())
+    group = []
+    if body.cohort_id or body.program or body.stage:
+        gq = q
+        if body.cohort_id:
+            gq = gq.where(Student.cohort_id == body.cohort_id)
+        if body.stage:
+            gq = gq.where(func.coalesce(Student.stage, "not_started") == body.stage)
+        group = list(db.scalars(gq).all())
+        if body.program:
+            group = [s for s in group if JR.student_program(s) == body.program]
+    seen, out = set(), []
+    for s in picked + group:
+        if s.id not in seen:
+            seen.add(s.id)
+            out.append(s)
+    return out
+
+
 @router.post("/advisor/jobs/{job_id}/share")
-def share_job(job_id: str, body: ShareIn, user: User = Depends(require_staff), db: Session = Depends(get_db)):
+def share_job(job_id: str, body: ShareIn, dry_run: bool = False, user: User = Depends(require_staff),
+              db: Session = Depends(get_db)):
+    """Share a job in the app: each student gets it in "Jobs for you" plus a notification (and email)."""
     job = db.get(Job, job_id)
     if not job:
         raise HTTPException(404, "Job not found")
-    n = 0
-    for sid in body.student_ids:
-        st = db.get(Student, sid)
-        if not st or st.status != "active":
-            continue
-        where = f" at {job.company}" if job.company else ""
+    targets = _share_targets(db, user, body)
+    already = set(db.scalars(select(JobShare.student_id).where(JobShare.job_id == job.id)).all())
+    new = [s for s in targets if s.id not in already]
+    if dry_run:
+        return {"would_share": len(new), "already": len(targets) - len(new)}
+    if not targets:
+        raise HTTPException(422, "Pick at least one student or a group.")
+    first = user.name.split()[0]
+    for st in new:
+        db.add(JobShare(job_id=job.id, student_id=st.id, shared_by=user.id, note=(body.note or "").strip() or None))
+        where = M(" at {company}", company=job.company) if job.company else ""
         notify_student(db, st, type="info", category="advisor", pref_key="job_match",
-                       title=f"{user.name.split()[0]} shared a job: {job.title}{where}",
-                       body=(body.note.strip() + "\n\n" if body.note else "") +
-                            f"{job.title}{where}" + (f" · {job.location}" if job.location else "") +
-                            "\nApply and it's logged automatically (+3) if the Chrome extension is installed.",
-                       link=job.url or "/tracker")
-        n += 1
-    job.shared_count = (job.shared_count or 0) + n
-    db.add(AuditLog(actor_id=user.id, action="job_shared", detail=f"{job.title} · {n} student(s)",
-                    data={"job_id": job.id, "students": body.student_ids}))
+                       title=M("{name} shared a job with you: {title}{where}", name=first, title=job.title, where=where),
+                       body=Cat((body.note or "").strip(), M("See it in Jobs for you, and tell {name} if you apply or if it's not a fit.", name=first)),
+                       link="/jobs")
+    job.shared_count = len(already) + len(new)
+    db.add(AuditLog(actor_id=user.id, action="job_shared", detail=f"{job.title} · {len(new)} student(s)",
+                    data={"job_id": job.id, "students": [s.id for s in new], "cohort_id": body.cohort_id,
+                          "program": body.program, "stage": body.stage}))
     db.commit()
-    return {"ok": True, "shared": n}
+    return {"ok": True, "shared": len(new), "already": len(targets) - len(new)}
+
+
+@router.get("/advisor/jobs/{job_id}/shares")
+def job_shares(job_id: str, user: User = Depends(require_staff), db: Session = Depends(get_db)):
+    rows = db.scalars(select(JobShare).where(JobShare.job_id == job_id).order_by(JobShare.created_at.desc())).all()
+    out = []
+    for r in rows:
+        st = db.get(Student, r.student_id)
+        if user.role != "admin" and st.advisor_id != user.id:
+            continue
+        out.append({"id": r.id, "student_id": st.id, "name": st.user.name, "cohort": st.cohort.name if st.cohort else None,
+                    "status": r.status, "response_note": r.response_note, "seen": r.seen_at is not None,
+                    "shared_at": iso(r.created_at), "responded_at": iso(r.responded_at)})
+    return out
+
+
+# ── students: "Jobs for you" ──
+
+def share_dict(r: JobShare, db: Session) -> dict:
+    by = db.get(User, r.shared_by) if r.shared_by else None
+    return {"id": r.id, "status": r.status, "note": r.note, "response_note": r.response_note, "shared_at": iso(r.created_at),
+            "new": r.seen_at is None, "shared_by": by.name if by else None, "application_id": r.application_id,
+            "job": job_dict(r.job)}
+
+
+@router.get("/students/{student_id}/jobs")
+def my_jobs(student_id: str, user: User = Depends(current_user), db: Session = Depends(get_db)):
+    st = student_for(db, user, student_id)
+    rows = db.scalars(select(JobShare).where(JobShare.student_id == st.id).order_by(JobShare.created_at.desc())).all()
+    out = [share_dict(r, db) for r in rows]
+    if user.role == "student":
+        for r in rows:
+            r.seen_at = r.seen_at or now_utc()
+        db.commit()
+    return out
+
+
+@router.get("/students/me/jobs/unseen")
+def unseen_jobs(user: User = Depends(current_user), db: Session = Depends(get_db)):
+    if not user.student:
+        return {"count": 0}
+    return {"count": db.scalar(select(func.count(JobShare.id)).where(JobShare.student_id == user.student.id,
+                                                                   JobShare.seen_at.is_(None))) or 0}
+
+
+class ShareResponseIn(BaseModel):
+    status: str = Field(pattern="^(new|interested|applied|not_a_fit)$")
+    note: str | None = Field(default=None, max_length=500)
+
+
+@router.patch("/students/{student_id}/jobs/{share_id}")
+def respond_job(student_id: str, share_id: str, body: ShareResponseIn, user: User = Depends(current_user),
+                db: Session = Depends(get_db)):
+    """Interested / applied / not a fit. 'Applied' logs the application in the tracker (+points) once."""
+    st = student_for(db, user, student_id)
+    r = db.get(JobShare, share_id)
+    if not r or r.student_id != st.id:
+        raise HTTPException(404, "Job not found")
+    r.status, r.response_note, r.responded_at = body.status, (body.note or "").strip() or None, now_utc()
+    created = False
+    if body.status == "applied" and not r.application_id:
+        app, created = engine.record_application(db, st, company=r.job.company or "—", role=r.job.title,
+                                                 job_url=r.job.url, source="job_radar",
+                                                 notes="Shared by your advisor (Job Radar)", user=user)
+        r.application_id = app.id
+    if body.status in ("applied", "not_a_fit") and st.advisor and user.role == "student":
+        what = M("applied to") if body.status == "applied" else M("passed on")
+        notify_user(db, st.advisor, type="info", category="advisor_alert", pref_key="guarantee", email=False,
+                    title=M("{name} {what} {title}", name=st.user.name, what=what, title=r.job.title),
+                    body=r.response_note or "", link="/staff/jobs")
+    db.commit()
+    return {**share_dict(r, db), "logged_application": created, "points": st.career_points}
+

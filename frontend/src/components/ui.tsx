@@ -1,16 +1,17 @@
 import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from "react";
 import { statusColor, statusLabel, statusNum, statusPill } from "../lib/format";
 import type { GStatus } from "../lib/types";
+import { t } from "../lib/i18n";
 
-export function Spinner() { return <div className="spinner" role="status" aria-label="Loading" />; }
+export function Spinner() { return <div className="spinner" role="status" aria-label={t("Loading")} />; }
 
 export function ErrorBox({ error }: { error: unknown }) {
   if (!error) return null;
-  return <div className="err" role="alert">{error instanceof Error ? error.message : String(error)}</div>;
+  return <div className="err" role="alert">{t(error instanceof Error ? error.message : String(error))}</div>;
 }
 
 export function StatusPill({ status, paused }: { status: GStatus | string; paused?: boolean }) {
-  if (paused) return <span className="pill pg">On pause</span>;
+  if (paused) return <span className="pill pg">{t("On pause")}</span>;
   return <span className={`pill ${statusPill[status] || "pg"}`}>{statusLabel[status] || status}</span>;
 }
 
@@ -36,20 +37,20 @@ export function Gauge({ points, status, secured = 80, suspended = 60, size = 200
       </svg>
       <div style={{ position: "absolute", inset: 0, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center" }}>
         <div className="num" style={{ fontSize: 54, lineHeight: 1, color: statusNum(status) }}>{points}</div>
-        <div className="cap">of 100</div>
+        <div className="cap">{t("of 100")}</div>
       </div>
     </div>
   );
 }
 
 export function Legend() {
-  const item = (c: string, t: string) => (
+  const item = (c: string, it: string) => (
     <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
-      <span style={{ width: 10, height: 10, borderRadius: "50%", background: c }} />{t}
+      <span style={{ width: 10, height: 10, borderRadius: "50%", background: c }} />{it}
     </span>);
   return (
     <div style={{ display: "flex", gap: 14, flexWrap: "wrap", justifyContent: "center", fontSize: 12, color: "var(--body)" }}>
-      {item("var(--blue)", "Secured 80+")}{item("var(--amber)", "At risk 60–79")}{item("var(--red)", "Suspended <60")}
+      {item("var(--blue)", t("Secured 80+"))}{item("var(--amber)", t("At risk 60–79"))}{item("var(--red)", t("Suspended <60"))}
     </div>);
 }
 
@@ -63,7 +64,7 @@ export function Modal({ title, onClose, children }: { title: string; onClose: ()
     <div className="modal-bg" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
       <div className="modal" role="dialog" aria-modal="true" aria-label={title}>
         <div className="between"><h2 className="h2">{title}</h2>
-          <button className="icon-btn" onClick={onClose} aria-label="Close">✕</button></div>
+          <button className="icon-btn" onClick={onClose} aria-label={t("Close")}>✕</button></div>
         {children}
       </div>
     </div>);

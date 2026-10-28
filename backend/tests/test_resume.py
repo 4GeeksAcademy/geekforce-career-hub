@@ -160,3 +160,19 @@ def test_student_can_edit_saved_version(client, db, people):
     assert r.json()["label"] == "Acme · edited"
     other = auth(people["admin"])
     assert client.put(f"/api/v1/students/me/resume/versions/{vid}", headers=other, json={"label": "x" * 3}).status_code == 404
+
+
+def test_resume_language_drives_headings_and_prompts(client, db, people):
+    h = auth(people["student_user"])
+    data = _seed(client, h)
+    assert client.get("/api/v1/students/me/resume", headers=h).json()["lang"] == "en"
+    client.put("/api/v1/students/me/resume", headers=h, json={"data": data, "template": "classic", "lang": "es"})
+    got = client.get("/api/v1/students/me/resume", headers=h).json()
+    assert got["lang"] == "es"
+    p = client.post("/api/v1/students/me/resume/tailor/prompt", headers=h, json={"job_text": JOB}).json()["prompt"]
+    assert "Spanish" in p and "translate" in p
+    vid = client.post("/api/v1/students/me/resume/versions", headers=h, json={"label": "Acme ES", "data": data}).json()["id"]
+    assert client.get(f"/api/v1/students/me/resume/versions/{vid}", headers=h).json()["lang"] == "es"
+    doc = Document(io.BytesIO(R.build_docx(R.normalize(RESUME), "classic", "es")))
+    text = "\n".join(p.text for p in doc.paragraphs)
+    assert "EXPERIENCIA" in text and "EXPERIENCE" not in text

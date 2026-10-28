@@ -15,6 +15,7 @@ from fastapi import HTTPException
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session as DB
 
+from .i18n import Cat, D, M, lang_of, tr
 from .models import (
     ActivityLog, Application, AuditLog, HomeworkTask, OfferReport, PauseRequest, PointsEvent, ProfileTask,
     Session, Student, User,
@@ -73,25 +74,24 @@ def refresh_status(db: DB, st: Student, r: Rules | None = None) -> str:
     gap = r.secured_threshold - st.career_points
     if new == "at_risk" and old == "secured":
         notify_student(db, st, type="warning", category="guarantee",
-                       title="Your Job Guarantee is at risk",
-                       body=f"You're at {st.career_points} points, {gap} below {r.secured_threshold}. "
-                            f"If you drop below {r.suspended_below}, your guarantee is suspended permanently.",
+                       title=M("Your Job Guarantee is at risk"),
+                       body=M("You're at {points} points, {gap} below {secured}. If you drop below {below}, your guarantee is suspended permanently.",
+                              points=st.career_points, gap=gap, secured=r.secured_threshold, below=r.suspended_below),
                        link="/points")
     elif new == "suspended":
         st.suspended_at = now_utc()
         notify_student(db, st, type="critical", category="guarantee",
-                       title="Your Job Guarantee has been suspended",
-                       body=f"Your balance dropped to {st.career_points}, below {r.suspended_below}. Under the GeekForce "
-                            "policy this suspension is permanent. You keep full career support, sessions and points. "
-                            "If you believe this is a mistake, talk to your advisor.",
+                       title=M("Your Job Guarantee has been suspended"),
+                       body=M("Your balance dropped to {points}, below {below}. Under the GeekForce policy this suspension is permanent. You keep full career support, sessions and points. If you believe this is a mistake, talk to your advisor.",
+                              points=st.career_points, below=r.suspended_below),
                        link="/points")
-        alert_advisor(db, st, f"{st.user.name}: guarantee suspended",
-                      f"{st.user.name} dropped to {st.career_points} points. The suspension is permanent unless an admin "
-                      "reinstates it.")
+        alert_advisor(db, st, M("{name}: guarantee suspended", name=st.user.name),
+                      M("{name} dropped to {points} points. The suspension is permanent unless an admin reinstates it.",
+                        name=st.user.name, points=st.career_points))
     elif new == "secured":
         notify_student(db, st, type="success", category="guarantee",
-                       title="Your Job Guarantee is secured again",
-                       body=f"You're back at {st.career_points} points. Keep it up.", link="/points")
+                       title=M("Your Job Guarantee is secured again"),
+                       body=M("You're back at {points} points. Keep it up.", points=st.career_points), link="/points")
     return new
 
 
@@ -106,14 +106,14 @@ def reinstate_guarantee(db: DB, st: Student, admin: User, reason: str, set_point
     if target < r.suspended_below:
         raise HTTPException(422, f"The balance must be at least {r.suspended_below} to reinstate. Set a new balance.")
     if target != st.career_points:
-        award(db, st, "manual_adjustment", target - st.career_points, "Balance corrected on reinstatement",
+        award(db, st, "manual_adjustment", target - st.career_points, M("Balance corrected on reinstatement"),
               source="admin", note=reason.strip(), created_by=admin.id)
     st.guarantee_status = compute_status(st.career_points, r)
     st.suspended_at = None
     db.add(AuditLog(actor_id=admin.id, student_id=st.id, action="guarantee_reinstated",
                     detail=f"Reinstated at {st.career_points} points · {reason.strip()}"))
-    notify_student(db, st, type="success", category="guarantee", title="Your Job Guarantee has been reinstated",
-                   body=f"An admin reviewed your case and reinstated your guarantee at {st.career_points} points.",
+    notify_student(db, st, type="success", category="guarantee", title=M("Your Job Guarantee has been reinstated"),
+                   body=M("An admin reviewed your case and reinstated your guarantee at {points} points.", points=st.career_points),
                    link="/points")
 
 
@@ -130,7 +130,7 @@ def award(db: DB, st: Student, event_type: str, delta: int, title: str, *, sourc
     before = st.career_points
     after = max(r.points_floor, min(r.points_ceiling, before + delta))
     ev = PointsEvent(student_id=st.id, event_type=event_type, delta=delta, applied_delta=after - before,
-                     balance_after=after, title=title, source=source, source_id=source_id, note=note,
+                     balance_after=after, title=tr(title, lang_of(st.user))[:255], source=source, source_id=source_id, note=note,
                      created_by=created_by, idempotency_key=key)
     if at:
         ev.created_at = at
@@ -199,7 +199,7 @@ def record_application(db: DB, st: Student, *, company: str, role: str, job_url:
     db.add(app)
     db.flush()
     origin = "Chrome extension" if source.startswith("extension") else "Added manually"
-    award(db, st, "application", r.pts_application, f"Applied · {app.role} at {app.company}",
+    award(db, st, "application", r.pts_application, M("Applied · {role} at {company}", role=app.role, company=app.company),
           source="extension" if source.startswith("extension") else "manual", source_id=app.id,
           created_by=user.id, r=r, note=origin)
     touch(st)
@@ -211,7 +211,7 @@ def undo_application(db: DB, st: Student, app: Application, user: User):
         raise HTTPException(400, "Applications can only be undone within 15 minutes. Mark it withdrawn instead.")
     ev = db.scalar(select(PointsEvent).where(PointsEvent.source_id == app.id, PointsEvent.event_type == "application"))
     if ev:
-        award(db, st, "application_undo", -ev.applied_delta, f"Undone · {app.role} at {app.company}",
+        award(db, st, "application_undo", -ev.applied_delta, M("Undone · {role} at {company}", role=app.role, company=app.company),
               source="manual", source_id=app.id, created_by=user.id)
     db.delete(app)
 
@@ -228,14 +228,14 @@ def log_activity(db: DB, st: Student, *, kind: str, user: User, occurred_on: dat
             raise HTTPException(422, "Only original posts or reposts with your own commentary count")
         if activities_in_week(db, st.id, kind, monday, awarded_only=True) < r.cap_linkedin_posts_week:
             pts = r.pts_linkedin_post
-        title = "LinkedIn post · " + ("original" if fields.get("post_type") == "original" else "repost with commentary")
+        title = M("LinkedIn post · original") if fields.get("post_type") == "original" else M("LinkedIn post · repost with commentary")
     elif kind == "outreach":
         if activities_in_week(db, st.id, kind, monday, awarded_only=True) < r.cap_outreach_week:
             pts = r.pts_outreach
-        title = f"Recruiter outreach · {fields.get('contact_name') or ''} at {fields.get('company') or ''}".strip(" ·")
+        title = M("Recruiter outreach · {contact} at {company}", contact=fields.get("contact_name") or "—", company=fields.get("company") or "—")
     elif kind == "networking":
         pts = r.pts_networking
-        title = f"Networking · {fields.get('notes') or fields.get('company') or 'logged'}"[:255]
+        title = M("Networking · {what}", what=(fields.get("notes") or fields.get("company") or "—")[:200])
     else:
         raise HTTPException(422, "Unknown activity type")
     if pts:
@@ -254,7 +254,7 @@ def complete_profile_task(db: DB, st: Student, task: str, user: User) -> bool:
     labels = {"cv": "Upload your CV", "github": "GitHub profile ready", "headshot": "Professional headshot",
               "linkedin": "LinkedIn profile optimized"}
     r = get_rules(db)
-    award(db, st, "profile_task", r.pts_profile_task, f"Profile task · {labels[task]}",
+    award(db, st, "profile_task", r.pts_profile_task, M("Profile task · {task}", task=M(labels[task])),
           source="manual", created_by=user.id, key=f"profile:{st.id}:{task}", r=r)
     touch(st)
     return True
@@ -264,7 +264,7 @@ def complete_homework(db: DB, st: Student, task: HomeworkTask, user: User):
     if task.status != "pending":
         raise HTTPException(400, "This task is already " + task.status)
     task.status, task.completed_at = "completed", now_utc()
-    award(db, st, "homework", task.point_value, f"Homework done · {task.description[:120]}",
+    award(db, st, "homework", task.point_value, M("Homework done · {task}", task=task.description[:120]),
           source="manual", source_id=task.id, created_by=user.id, key=f"homework:{task.id}")
     touch(st)
 
@@ -306,27 +306,26 @@ def plan_session(db: DB, st: Student, *, session_type: str, attendance: str, ses
         allowed = int(r.reschedules_allowed)
         if n <= allowed:
             ded = r.ded_reschedule_first if n == 1 else r.ded_reschedule_second
-            ordinal = {1: "1st", 2: "2nd", 3: "3rd"}.get(n, f"{n}th")
             if not paused:
-                plan.effects.append(Effect("deduction_reschedule", ded, f"{ordinal} reschedule in the program"))
+                plan.effects.append(Effect("deduction_reschedule", ded, M("Reschedule {n} in the program", n=n)))
             left = allowed - n
-            plan.notes.append(f"Reschedule {n} of {allowed} allowed" + (
-                "" if left else ". The next one will count as an absence"))
+            plan.notes.append(M("Reschedule {n} of {allowed} allowed", n=n, allowed=allowed) if left else
+                              M("Reschedule {n} of {allowed} allowed. The next one will count as an absence", n=n, allowed=allowed))
         else:
             attendance = "absent"
-            plan.notes.append(f"Reschedule {n}: past the {allowed} allowed, so it counts as an absence")
+            plan.notes.append(M("Reschedule {n}: past the {allowed} allowed, so it counts as an absence", n=n, allowed=allowed))
     plan.effective_attendance = attendance
     if attendance == "attended":
         pts = {"one_on_one": r.pts_meeting_attended, "group_workshop": r.pts_session_attended,
                "mock_interview": r.pts_mock_interview}[session_type]
-        label = {"one_on_one": "1:1 meeting attended", "group_workshop": "GeekForce session attended",
-                 "mock_interview": "Mock interview completed"}[session_type]
+        label = M({"one_on_one": "1:1 meeting attended", "group_workshop": "GeekForce session attended",
+                   "mock_interview": "Mock interview completed"}[session_type])
         plan.effects.append(Effect("meeting" if session_type == "one_on_one" else "session", pts, label))
     elif attendance == "absent":
         plan.missed_meetings_after += 1
         if not paused:
-            plan.effects.append(Effect("deduction_absence", r.ded_session_missed, "Absent from the session"))
-        plan.notes.append(f"Counts as {plan.missed_meetings_after} of {r.max_missed_meetings} allowed misses")
+            plan.effects.append(Effect("deduction_absence", r.ded_session_missed, M("Absent from the session")))
+        plan.notes.append(M("Counts as {n} of {max} allowed misses", n=plan.missed_meetings_after, max=r.max_missed_meetings))
 
     if session_type == "one_on_one" and attendance in ("attended", "absent"):
         session_day = aware(session_date).astimezone(tz()).date()
@@ -349,10 +348,10 @@ def plan_session(db: DB, st: Student, *, session_type: str, attendance: str, ses
             plan.streak_after = st.consecutive_homework_misses + 1
             for t in missed:
                 plan.effects.append(Effect("deduction_homework", r.ded_homework_missed,
-                                           f"Homework not done · {t.description[:100]}"))
+                                           M("Homework not done · {task}", task=t.description[:100])))
             if plan.streak_after >= 2:
                 plan.effects.append(Effect("deduction_streak", r.ded_homework_streak,
-                                           f"Homework missed {plan.streak_after} meetings in a row"))
+                                           M("Homework missed {n} meetings in a row", n=plan.streak_after)))
         elif due or done_since:
             plan.streak_after = 0
         if paused:
@@ -402,34 +401,34 @@ def log_session(db: DB, st: Student, advisor: User, *, session_type: str, attend
 
     # Notifications
     if attendance == "absent" and st.missed_meetings >= r.max_missed_meetings:
-        notify_student(db, st, type="critical", category="guarantee", title="Missed-meeting limit reached",
-                       body=f"You've missed {st.missed_meetings} meetings. Your advisor will review "
-                            f"your guarantee status.", link="/advisor")
-        alert_advisor(db, st, f"{st.user.name}: {st.missed_meetings} missed meetings",
-                      "Missed-meeting limit reached. Review the guarantee status.")
+        notify_student(db, st, type="critical", category="guarantee", title=M("Missed-meeting limit reached"),
+                       body=M("You've missed {n} meetings. Your advisor will review your guarantee status.", n=st.missed_meetings), link="/advisor")
+        alert_advisor(db, st, M("{name}: {n} missed meetings", name=st.user.name, n=st.missed_meetings),
+                      M("Missed-meeting limit reached. Review the guarantee status."))
     if plan.missed_tasks:
-        alert_advisor(db, st, f"{st.user.name}: homework not done",
-                      f"{len(plan.missed_tasks)} task(s) were still pending at the session.")
+        alert_advisor(db, st, M("{name}: homework not done", name=st.user.name),
+                      M("{n} task(s) were still pending at the session.", n=len(plan.missed_tasks)))
     if summary or new_homework:
-        hw_lines = "\n".join(f"• {h['description']}" + (f" (due {h['due_date']})" if h.get('due_date') else "")
-                             for h in new_homework)
+        hw_lines = Cat(*[Cat(f"• {h['description']}", M(" (due {date})", date=D(h["due_date"])) if h.get("due_date") else "", sep="")
+                         for h in new_homework], sep="\n")
         notify_student(db, st, type="info", category="advisor", pref_key="session_notes",
-                       title=f"{advisor.name} added notes" + (f" and {len(new_homework)} homework task(s)" if new_homework else ""),
-                       body=(summary or "") + (f"\n\nHomework:\n{hw_lines}" if hw_lines else ""), link="/advisor")
+                       title=(M("{name} added notes and {n} homework task(s)", name=advisor.name, n=len(new_homework)) if new_homework
+                              else M("{name} added notes", name=advisor.name)),
+                       body=Cat(summary or "", Cat(M("Homework:"), hw_lines, sep="\n") if new_homework else ""), link="/advisor")
     allowed = int(r.reschedules_allowed)
     if attendance == "absent":
-        extra = (f" You had already used your {allowed} reschedules, so this one counts as an absence."
+        extra = (M(" You had already used your {allowed} reschedules, so this one counts as an absence.", allowed=allowed)
                  if plan.reschedules_after > allowed else "")
         notify_student(db, st, type="deduction", category="deduction",
-                       title=f"{r.ded_session_missed}: absent from a session",
-                       body=f"This counts as {st.missed_meetings} of your {r.max_missed_meetings} allowed misses.{extra}",
+                       title=M("{pts}: absent from a session", pts=r.ded_session_missed),
+                       body=Cat(M("This counts as {n} of your {max} allowed misses.", n=st.missed_meetings, max=r.max_missed_meetings), extra, sep=""),
                        link="/advisor")
     elif attendance == "rescheduled" and plan.effects:
         left = allowed - plan.reschedules_after
         notify_student(db, st, type="deduction", category="deduction",
-                       title=f"{plan.effects[0].delta}: session rescheduled",
-                       body=f"You've used {plan.reschedules_after} of your {allowed} reschedules. " + (
-                           f"You have {left} left." if left else "The next reschedule will count as an absence (−10)."),
+                       title=M("{pts}: session rescheduled", pts=plan.effects[0].delta),
+                       body=Cat(M("You've used {n} of your {allowed} reschedules.", n=plan.reschedules_after, allowed=allowed),
+                                M("You have {left} left.", left=left) if left else M("The next reschedule will count as an absence (−10)."), sep=" "),
                        link="/advisor")
     return sess, plan
 
@@ -439,7 +438,7 @@ def log_session(db: DB, st: Student, advisor: User, *, session_type: str, attend
 def manual_adjustment(db: DB, st: Student, advisor: User, delta: int, reason: str):
     if not reason or len(reason.strip()) < 5:
         raise HTTPException(422, "A reason is required for manual adjustments")
-    ev = award(db, st, "manual_adjustment", delta, ("Points added" if delta >= 0 else "Points removed") + " by advisor",
+    ev = award(db, st, "manual_adjustment", delta, (M("Points added by advisor") if delta >= 0 else M("Points removed by advisor")),
                source="advisor", note=reason.strip(), created_by=advisor.id)
     db.add(AuditLog(actor_id=advisor.id, student_id=st.id, action="manual_adjustment",
                     detail=f"{delta:+d} · {reason.strip()}", data={"delta": delta}))
@@ -454,11 +453,11 @@ def report_offer_rejection(db: DB, st: Student, advisor: User, *, company: str, 
     db.add(rep)
     db.flush()
     if not approved:
-        award(db, st, "deduction_offer", r.ded_offer_rejected, f"Valid offer rejected · {company}",
+        award(db, st, "deduction_offer", r.ded_offer_rejected, M("Valid offer rejected · {company}", company=company),
               source="advisor", source_id=rep.id, note=justification, created_by=advisor.id)
         notify_student(db, st, type="deduction", category="deduction",
-                       title=f"{r.ded_offer_rejected}: offer from {company} rejected without justification",
-                       body="Talk to your advisor if you think this is wrong.", link="/points")
+                       title=M("{pts}: offer from {company} rejected without justification", pts=r.ded_offer_rejected, company=company),
+                       body=M("Talk to your advisor if you think this is wrong."), link="/points")
     db.add(AuditLog(actor_id=advisor.id, student_id=st.id, action="offer_rejection",
                     detail=f"{company} · {'justified, no deduction' if approved else f'{r.ded_offer_rejected}'}"))
     return rep
@@ -466,7 +465,7 @@ def report_offer_rejection(db: DB, st: Student, advisor: User, *, company: str, 
 
 def project_submitted(db: DB, st: Student, advisor: User, title: str):
     r = get_rules(db)
-    award(db, st, "project", r.pts_project, f"Project submitted · {title}", source="advisor", created_by=advisor.id)
+    award(db, st, "project", r.pts_project, M("Project submitted · {title}", title=title), source="advisor", created_by=advisor.id)
     touch(st)
 
 
@@ -488,7 +487,8 @@ def request_pause(db: DB, st: Student, *, start_date: date, end_date: date, reas
     pr = PauseRequest(student_id=st.id, start_date=start_date, end_date=end_date, reason_type=reason_type,
                       reason=reason, extension_days=math.ceil(days * r.pause_deadline_multiplier))
     db.add(pr)
-    alert_advisor(db, st, f"{st.user.name} requested a {days}-day pause", f"{reason_type}: {reason or ''}",
+    alert_advisor(db, st, M("{name} requested a {days}-day pause", name=st.user.name, days=days),
+                  Cat(M({"medical": "Medical situation", "family": "Family emergency", "travel": "Pre-approved travel"}.get(reason_type, "Other")), reason or "", sep=": "),
                   link="/admin")
     return pr
 
@@ -504,12 +504,12 @@ def decide_pause(db: DB, pr: PauseRequest, actor: User, approve: bool, note: str
         st.paused_from, st.paused_until = pr.start_date, pr.end_date
         st.pauses_used += 1
         st.deadline_extension_days = (st.deadline_extension_days or 0) + pr.extension_days
-        notify_student(db, st, type="info", category="pause", title="Your pause was approved",
-                       body=f"{days} days, {pr.start_date:%b %d} to {pr.end_date:%b %d}. Automatic deductions are frozen "
-                            f"and your job search deadline moves out by {pr.extension_days} days.", link="/points")
+        notify_student(db, st, type="info", category="pause", title=M("Your pause was approved"),
+                       body=M("{days} days, {start} to {end}. Automatic deductions are frozen and your job search deadline moves out by {ext} days.",
+                              days=days, start=D(pr.start_date), end=D(pr.end_date), ext=pr.extension_days), link="/points")
     else:
-        notify_student(db, st, type="info", category="pause", title="Your pause request was declined",
-                       body=note or "Talk to your advisor for details.", link="/points")
+        notify_student(db, st, type="info", category="pause", title=M("Your pause request was declined"),
+                       body=note or M("Talk to your advisor for details."), link="/points")
     db.add(AuditLog(actor_id=actor.id, student_id=st.id, action="pause_" + pr.status,
                     detail=f"{days} days · {pr.reason_type} · deadline +{pr.extension_days if approve else 0} days"))
 
@@ -528,10 +528,10 @@ def reject_activity(db: DB, act: ActivityLog, advisor: User, reason: str):
     if act.points_awarded:
         ev = db.scalar(select(PointsEvent).where(PointsEvent.source_id == act.id, PointsEvent.event_type == act.kind))
         award(db, st, "activity_rejected", -(ev.applied_delta if ev else act.points_awarded),
-              f"{label} rejected by advisor", source="advisor", source_id=act.id, note=reason.strip(),
+              M("{label} rejected by advisor", label=M(label)), source="advisor", source_id=act.id, note=reason.strip(),
               created_by=advisor.id, key=f"reject:{act.id}")
         act.points_awarded = 0
-    notify_student(db, st, type="deduction", category="deduction", title=f"Your {label.lower()} entry was rejected",
+    notify_student(db, st, type="deduction", category="deduction", title=M("Your {label} entry was rejected", label=M(label)),
                    body=f"{advisor.name}: {reason.strip()}", link="/tracker")
     db.add(AuditLog(actor_id=advisor.id, student_id=st.id, action="activity_rejected", detail=f"{label} · {reason.strip()}"))
 

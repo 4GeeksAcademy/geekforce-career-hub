@@ -12,6 +12,7 @@ from datetime import date, datetime, timedelta
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session as DB
 
+from .i18n import Cat, D, M
 from .db import SessionLocal
 from .engine import (
     applications_in_week, award, compute_status, is_paused, quota_applies, refresh_status, weekly_target,
@@ -46,20 +47,20 @@ def weekly_check(db: DB, today: date | None = None) -> dict:
         n = applications_in_week(db, st.id, last_monday)
         key = f"weekly:{st.id}:{last_monday.isoformat()}"
         if n >= target:
-            if award(db, st, "weekly_bonus", r.pts_weekly_bonus, f"Weekly goal met · {n} applications",
+            if award(db, st, "weekly_bonus", r.pts_weekly_bonus, M("Weekly goal met · {n} applications", n=n),
                      source="weekly_check", key=key, r=r):
                 out["bonus"] += 1
         elif is_paused(st, today):
             out["skipped"] += 1
         else:
             ev = award(db, st, "deduction_weekly", r.ded_weekly_target_missed,
-                       f"Weekly goal missed · {n} of {target} applications",
+                       M("Weekly goal missed · {n} of {target} applications", n=n, target=target),
                        source="weekly_check", key=key, r=r)
             if ev:
                 out["deducted"] += 1
                 notify_student(db, st, type="deduction", category="deduction",
-                               title=f"{r.ded_weekly_target_missed}: last week ended at {n} of {target}",
-                               body=f"This week's target is {target}. Hit it for a +{r.pts_weekly_bonus} bonus.",
+                               title=M("{pts}: last week ended at {n} of {target}", pts=r.ded_weekly_target_missed, n=n, target=target),
+                               body=M("This week's target is {target}. Hit it for a +{bonus} bonus.", target=target, bonus=r.pts_weekly_bonus),
                                link="/tracker")
     db.commit()
     return out
@@ -78,8 +79,8 @@ def friday_nudge(db: DB, today: date | None = None) -> dict:
         if n < target:
             left = target - n
             if notify_student(db, st, type="warning", category="reminder", pref_key="weekly_nudge", email=False,
-                              title=f"{left} applications to go this week",
-                              body=f"You're at {n} of {target}. Your week closes Sunday at 11:59 PM.",
+                              title=M("{n} applications to go this week", n=left),
+                              body=M("You're at {n} of {target}. Your week closes Sunday at 11:59 PM.", n=n, target=target),
                               link="/tracker"):
                 sent += 1
     db.commit()
@@ -103,13 +104,13 @@ def _window_check(db: DB, st: Student, today: date, kind: str, event_type: str, 
         return None
     anchor = max(anchors)
     if (today - anchor).days >= days and not is_paused(st, today):
-        ev = award(db, st, event_type, delta, f"No {label} in {days} days", source="automatic",
+        ev = award(db, st, event_type, delta, M("No {what} in {days} days", what=M(label), days=days), source="automatic",
                    key=f"{event_type}:{st.id}:{today.isoformat()}")
         if ev:
             notify_student(db, st, type="deduction", category="deduction",
-                           title=f"{delta}: no {label} in {days} days",
-                           body=f"Log {'a LinkedIn post' if kind == 'linkedin_post' else 'a recruiter outreach message'} "
-                                "to stop the clock.", link="/tracker")
+                           title=M("{pts}: no {what} in {days} days", pts=delta, what=M(label), days=days),
+                           body=M("Log a LinkedIn post to stop the clock.") if kind == "linkedin_post" else M("Log a recruiter outreach message to stop the clock."),
+                           link="/tracker")
         return ev
     return None
 
@@ -137,21 +138,21 @@ def _inactivity(db: DB, st: Student, today: date):
     idle = (today - last).days
     if idle == r.inactivity_warning_day:
         notify_student(db, st, type="warning", category="inactivity",
-                       title=f"You've been inactive for {idle} days",
-                       body=f"On day {r.inactivity_days + 1} you lose {abs(r.ded_inactivity_initial)} points. "
-                            "Log an application, book a session, or request a pause.", link="/")
+                       title=M("You've been inactive for {n} days", n=idle),
+                       body=M("On day {day} you lose {pts} points. Log an application, book a session, or request a pause.",
+                              day=r.inactivity_days + 1, pts=abs(r.ded_inactivity_initial)), link="/")
     if idle > r.inactivity_days:
         # day 31 → initial deduction, then every 7 days
         n = (idle - r.inactivity_days - 1) // 7
         if (idle - r.inactivity_days - 1) % 7 == 0:
             delta = r.ded_inactivity_initial if n == 0 else r.ded_inactivity_weekly
-            ev = award(db, st, "deduction_inactivity", delta, f"Inactive for {idle} days", source="automatic",
+            ev = award(db, st, "deduction_inactivity", delta, M("Inactive for {n} days", n=idle), source="automatic",
                        key=f"inactive:{st.id}:{last.isoformat()}:{n}")
             if ev:
                 notify_student(db, st, type="critical", category="inactivity",
-                               title=f"{delta}: inactive for {idle} days",
-                               body="Get active again or ask your advisor about a pause.", link="/")
-                alert_advisor(db, st, f"{st.user.name}: inactive {idle} days", f"Deduction of {delta} applied.")
+                               title=M("{pts}: inactive for {n} days", pts=delta, n=idle),
+                               body=M("Get active again or ask your advisor about a pause."), link="/")
+                alert_advisor(db, st, M("{name}: inactive {n} days", name=st.user.name, n=idle), M("Deduction of {pts} applied.", pts=delta))
 
 
 def _not_started_ladder(db: DB, st: Student, today: date, r):
@@ -169,21 +170,21 @@ def _not_started_ladder(db: DB, st: Student, today: date, r):
         st.not_started_level = 30
         if st.guarantee_status not in ("not_eligible", "suspended"):
             st.guarantee_status, st.suspended_at = "suspended", now_utc()
-            notify_student(db, st, type="critical", category="guarantee", title="Your Job Guarantee has been suspended",
-                           body=f"{day} days without your first 1:1 with GeekForce. Under the policy the guarantee is lost. "
-                                "You still have career support: book your first session now.", link="/advisor")
-            alert_advisor(db, st, f"{name}: guarantee lost (Not Started day {day})", "No first 1:1 in 30 days.")
+            notify_student(db, st, type="critical", category="guarantee", title=M("Your Job Guarantee has been suspended"),
+                           body=M("{day} days without your first 1:1 with GeekForce. Under the policy the guarantee is lost. You still have career support: book your first session now.", day=day),
+                           link="/advisor")
+            alert_advisor(db, st, M("{name}: guarantee lost (Not Started day {day})", name=name, day=day), M("No first 1:1 in 30 days."))
     elif day >= r.not_started_hold_day and st.not_started_level < 15:
         st.not_started_level, st.on_hold = 15, True
-        notify_student(db, st, type="critical", category="inactivity", title="Your GeekForce process is on hold",
-                       body=f"{day} days without your first 1:1. Book it now: on day {r.not_started_loss_day} the Job "
-                            "Guarantee is lost.", link="/advisor")
-        alert_advisor(db, st, f"{name}: on hold (Not Started day {day})", "No first 1:1 yet. Reach out today.")
+        notify_student(db, st, type="critical", category="inactivity", title=M("Your GeekForce process is on hold"),
+                       body=M("{day} days without your first 1:1. Book it now: on day {loss} the Job Guarantee is lost.", day=day, loss=r.not_started_loss_day),
+                       link="/advisor")
+        alert_advisor(db, st, M("{name}: on hold (Not Started day {day})", name=name, day=day), M("No first 1:1 yet. Reach out today."))
     elif day >= r.not_started_followup_day and st.not_started_level < 7:
         st.not_started_level = 7
-        notify_student(db, st, type="warning", category="reminder", title="Book your first GeekForce 1:1",
-                       body=f"It's been {day} days. On day {r.not_started_hold_day} your process goes on hold.", link="/advisor")
-        alert_advisor(db, st, f"{name}: no first 1:1 after {day} days", "Follow up by Slack and email.")
+        notify_student(db, st, type="warning", category="reminder", title=M("Book your first GeekForce 1:1"),
+                       body=M("It's been {day} days. On day {hold} your process goes on hold.", day=day, hold=r.not_started_hold_day), link="/advisor")
+        alert_advisor(db, st, M("{name}: no first 1:1 after {day} days", name=name, day=day), M("Follow up by Slack and email."))
 
 
 def daily(db: DB, today: date | None = None) -> dict:
@@ -195,8 +196,8 @@ def daily(db: DB, today: date | None = None) -> dict:
         if pr.end_date < today:
             pr.status = "ended"
             st.paused_from = st.paused_until = None
-            notify_student(db, st, type="info", category="pause", title="Welcome back: your pause has ended",
-                           body="All checks are running again. Your deadline already includes the extension.", link="/")
+            notify_student(db, st, type="info", category="pause", title=M("Welcome back: your pause has ended"),
+                           body=M("All checks are running again. Your deadline already includes the extension."), link="/")
             refresh_status(db, st, r)
     for st in _active_students(db):
         _not_started_ladder(db, st, today, r)
@@ -218,8 +219,8 @@ def reminders(db: DB, today: date | None = None) -> dict:
             HomeworkTask.due_date == today + timedelta(days=2))).all():
         st = db.get(Student, t.student_id)
         notify_student(db, st, type="reminder", category="reminder", pref_key="homework_reminder",
-                       title="Homework due in 48 hours",
-                       body=f"“{t.description}” is due {t.due_date:%A, %b %d}. Done on time: +{t.point_value}.",
+                       title=M("Homework due in 48 hours"),
+                       body=M("“{task}” is due {date}. Done on time: +{pts}.", task=t.description, date=D(t.due_date, "long"), pts=t.point_value),
                        link="/advisor")
         t.reminder_sent = True
         n += 1
@@ -227,8 +228,8 @@ def reminders(db: DB, today: date | None = None) -> dict:
             PauseRequest.status == "approved", PauseRequest.reminder_sent.is_(False),
             PauseRequest.end_date == today + timedelta(days=3))).all():
         st = db.get(Student, pr.student_id)
-        notify_student(db, st, type="reminder", category="pause", title="Your pause ends in 3 days",
-                       body=f"Checks resume after {pr.end_date:%b %d}.", link="/points")
+        notify_student(db, st, type="reminder", category="pause", title=M("Your pause ends in 3 days"),
+                       body=M("Checks resume after {date}.", date=D(pr.end_date)), link="/points")
         pr.reminder_sent = True
     db.commit()
     return {"homework_reminders": n}

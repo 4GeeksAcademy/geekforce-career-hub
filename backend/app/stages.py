@@ -11,6 +11,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session as DB
 
 from . import events
+from .i18n import Cat, L, M
 from .models import Application, AuditLog, ProfileTask, Session, Student, User
 from .timeutil import now_utc, week_start
 
@@ -43,7 +44,7 @@ def progress(db: DB, st: Student, weekly_target: int | None = None) -> dict:
     apps_week = applications_in_week(db, st.id, week_start())
 
     def item(label, done, how):
-        return {"label": label, "done": bool(done), "how": how}
+        return {"label": L(label), "done": bool(done), "how": L(how)}
 
     checklist = {
         "profile": [
@@ -58,8 +59,8 @@ def progress(db: DB, st: Student, weekly_target: int | None = None) -> dict:
             item("Technical mock interview", mocks >= 2 or "tech interview" in notion, "Mock interview logged or Notion"),
         ],
         "job_hunting": [
-            item(f"{weekly_target or 15} applications this week", weekly_target and apps_week >= weekly_target,
-                 f"{apps_week} so far"),
+            {"label": L("{n} applications this week", n=weekly_target or 15), "done": bool(weekly_target and apps_week >= weekly_target),
+             "how": L("{n} so far", n=apps_week)},
             item("First interview", interviews > 0, "An application reached interviews"),
         ],
     }
@@ -68,14 +69,14 @@ def progress(db: DB, st: Student, weekly_target: int | None = None) -> dict:
     for key in ORDER:
         idx, cur = ORDER.index(key), ORDER.index(current)
         items = checklist.get(key, [])
-        stages.append({"key": key, "label": LABEL[key], "state": "done" if idx < cur else "current" if idx == cur else "next",
+        stages.append({"key": key, "label": L(LABEL[key]), "state": "done" if idx < cur else "current" if idx == cur else "next",
                        "items": items, "done_count": sum(i["done"] for i in items), "total": len(items)})
     cur_items = checklist.get(current, [])
     nxt = ORDER[ORDER.index(current) + 1] if current != "placed" else None
-    return {"current": current, "label": LABEL[current], "next": nxt, "next_label": LABEL.get(nxt) if nxt else None,
+    return {"current": current, "label": L(LABEL[current]), "next": nxt, "next_label": L(LABEL[nxt]) if nxt else None,
             "ready_for_next": bool(cur_items) and all(i["done"] for i in cur_items) and current != "job_hunting",
             "changed_at": st.stage_changed_at.isoformat() if st.stage_changed_at else None,
-            "next_steps": NEXT_STEPS.get(current), "stages": stages}
+            "next_steps": L(NEXT_STEPS[current]) if current in NEXT_STEPS else None, "stages": stages}
 
 
 def set_stage(db: DB, st: Student, stage: str, actor: User | None, *, note: str | None = None,
@@ -97,8 +98,8 @@ def set_stage(db: DB, st: Student, stage: str, actor: User | None, *, note: str 
         from .notify import notify_student
         up = ORDER.index(stage) > ORDER.index(old)
         notify_student(db, st, type="success" if up else "info", category="advisor", pref_key="guarantee",
-                       title=f"You're now in {LABEL[stage]}" if up else f"Your stage changed to {LABEL[stage]}",
-                       body=(note.strip() + "\n\n" if note else "") + NEXT_STEPS.get(stage, ""), link="/")
+                       title=M("You're now in {stage}", stage=LABEL[stage]) if up else M("Your stage changed to {stage}", stage=LABEL[stage]),
+                       body=Cat((note or "").strip(), M(NEXT_STEPS.get(stage, ""))), link="/")
     events.emit(db, "stage_changed", st, {"from": old, "to": stage, "from_label": LABEL.get(old, old),
                                           "to_label": LABEL[stage], "source": source, "note": note,
                                           "by": actor.name if actor else None})

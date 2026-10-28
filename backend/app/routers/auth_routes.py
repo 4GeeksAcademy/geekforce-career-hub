@@ -9,6 +9,7 @@ from ..config import settings
 from ..db import get_db
 from ..models import User
 from ..serializers import initials, student_brief
+from ..i18n import lang_of
 from ..timeutil import now_utc
 
 router = APIRouter(prefix="/auth", tags=["auth"])
@@ -26,6 +27,7 @@ class PasswordIn(BaseModel):
 
 def me_dict(u: User) -> dict:
     return {"id": u.id, "email": u.email, "name": u.name, "initials": initials(u.name), "role": u.role,
+            "language": lang_of(u), "language_set": u.language is not None,
             "student": student_brief(u.student) if u.student else None}
 
 
@@ -41,6 +43,19 @@ def login(body: LoginIn, db: Session = Depends(get_db)):
 
 @router.get("/me")
 def me(user: User = Depends(current_user)):
+    return me_dict(user)
+
+
+class LanguageIn(BaseModel):
+    language: str
+
+
+@router.put("/language")
+def set_language(body: LanguageIn, user: User = Depends(current_user), db: Session = Depends(get_db)):
+    if body.language not in ("en", "es"):
+        raise HTTPException(422, "Language must be en or es")
+    user.language = body.language
+    db.commit()  # ActiveCampaign gets GF_LANG with the next sync or state change
     return me_dict(user)
 
 

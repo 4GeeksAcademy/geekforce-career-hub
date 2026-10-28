@@ -6,6 +6,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
+from ..i18n import Cat, D, L, M, request_lang, tr
 from .. import engine
 from ..auth import require_staff, student_for
 from ..db import get_db
@@ -13,7 +14,9 @@ from ..jobs import _last_activity
 from ..models import Application, Cohort, HomeworkTask, PauseRequest, Session as SessionModel, Student, User
 from ..rules import get_rules
 from ..serializers import homework_dict, pause_dict, session_dict, student_brief
-from ..timeutil import local_today, now_utc, week_start
+from ..timeutil import local_today, now_utc, tz, week_start
+
+REASONS = {"medical": M("medical situation"), "family": M("family emergency"), "travel": M("approved travel")}
 
 router = APIRouter(prefix="/advisor", tags=["advisor"])
 
@@ -91,26 +94,26 @@ def attention(user: User = Depends(require_staff), db: Session = Depends(get_db)
         name = st.user.name
         if st.guarantee_status == "suspended" and not engine.is_paused(st):
             items.append({"kind": "suspended", "student_id": st.id, "text":
-                          f"{name} is at {st.career_points} points. Guarantee suspended."})
+                          L("{name} is at {points} points. Guarantee suspended.", name=name, points=st.career_points)})
         last = _last_activity(db, st)
         if last and (today - last).days >= r.inactivity_warning_day and not engine.is_paused(st):
             d = (today - last).days
             items.append({"kind": "inactive", "student_id": st.id, "text":
-                          f"{name} has been inactive for {d} days." +
-                          (f" Deduction fires on day {r.inactivity_days + 1}." if d <= r.inactivity_days else "")})
+                          L("{name} has been inactive for {d} days.", name=name, d=d) +
+                          (L(" Deduction fires on day {n}.", n=r.inactivity_days + 1) if d <= r.inactivity_days else "")})
         if st.missed_meetings >= r.max_missed_meetings:
             items.append({"kind": "meetings", "student_id": st.id,
-                          "text": f"{name} reached {st.missed_meetings} missed meetings. Review the guarantee."})
+                          "text": L("{name} reached {n} missed meetings. Review the guarantee.", name=name, n=st.missed_meetings)})
         for a in db.scalars(select(Application).where(Application.student_id == st.id, Application.status == "offer")):
             items.append({"kind": "offer", "student_id": st.id,
-                          "text": f"{name} has an open offer from {a.company}. Rejecting without justification is "
-                                  f"−{abs(r.ded_offer_rejected)}."})
+                          "text": L("{name} has an open offer from {company}. Rejecting without justification is −{pts}.",
+                                    name=name, company=a.company, pts=abs(r.ded_offer_rejected))})
     for pr in db.scalars(select(PauseRequest).where(PauseRequest.status == "pending")).all():
         st = db.get(Student, pr.student_id)
         if user.role == "admin" or st.advisor_id == user.id:
             items.append({"kind": "pause", "student_id": st.id, "pause_id": pr.id,
-                          "text": f"{st.user.name} requested a {(pr.end_date - pr.start_date).days + 1}-day pause "
-                                  f"({pr.reason_type})."})
+                          "text": L("{name} requested a {days}-day pause ({reason}).", name=st.user.name,
+                                    days=(pr.end_date - pr.start_date).days + 1, reason=REASONS.get(pr.reason_type, pr.reason_type))})
     from ..models import Interaction
     fq = select(Interaction).where(Interaction.follow_up_date.is_not(None), Interaction.follow_up_done.is_(False),
                                    Interaction.follow_up_date <= today)
@@ -119,13 +122,13 @@ def attention(user: User = Depends(require_staff), db: Session = Depends(get_db)
     for i in db.scalars(fq).all():
         st = db.get(Student, i.student_id)
         items.append({"kind": "follow_up", "student_id": st.id, "interaction_id": i.id,
-                      "text": f"Follow up with {st.user.name}: {i.summary[:90]}"})
+                      "text": L("Follow up with {name}: {summary}", name=st.user.name, summary=i.summary[:90])})
     for st in db.scalars(_scope(user).where(Student.on_hold.is_(True), Student.status == "active")).all():
         items.append({"kind": "on_hold", "student_id": st.id,
-                      "text": f"{st.user.name} is on hold: no first 1:1 after {r.not_started_hold_day} days."})
+                      "text": L("{name} is on hold: no first 1:1 after {days} days.", name=st.user.name, days=r.not_started_hold_day)})
     onb = db.scalar(select(func.count(Student.id)).where(Student.status == "onboarding")) or 0
     if onb:
-        items.append({"kind": "onboarding", "student_id": "", "text": f"{onb} student(s) from Notion waiting for a starting balance."})
+        items.append({"kind": "onboarding", "student_id": "", "text": L("{n} student(s) from Notion waiting for a starting balance.", n=onb)})
     rank = {"suspended": 0, "on_hold": 1, "meetings": 2, "follow_up": 3, "inactive": 4, "offer": 5, "pause": 6, "onboarding": 7}
     items.sort(key=lambda x: rank[x["kind"]])
     return items
@@ -160,12 +163,13 @@ class ScheduleIn(BaseModel):
 
 
 def _plan_dict(plan: engine.SessionPlan) -> dict:
-    return {"effects": [{"type": e.event_type, "delta": e.delta, "title": e.title} for e in plan.effects],
+    lang = request_lang.get()
+    return {"effects": [{"type": e.event_type, "delta": e.delta, "title": tr(e.title, lang)} for e in plan.effects],
             "missed_tasks": [homework_dict(t) for t in plan.missed_tasks],
             "streak_after": plan.streak_after, "missed_meetings_after": plan.missed_meetings_after,
             "reschedules_after": plan.reschedules_after, "effective_attendance": plan.effective_attendance,
             "balance_before": plan.balance_before, "balance_after": plan.balance_after,
-            "status_after": plan.status_after, "notes": plan.notes}
+            "status_after": plan.status_after, "notes": [tr(n, lang) for n in plan.notes]}
 
 
 @router.post("/sessions/preview")
@@ -179,7 +183,7 @@ def preview_session(body: SessionIn, user: User = Depends(require_staff), db: Se
     d = _plan_dict(plan)
     if extra:
         r = get_rules(db)
-        d["effects"].insert(0, {"type": "homework", "delta": extra, "title": "Homework confirmed done"})
+        d["effects"].insert(0, {"type": "homework", "delta": extra, "title": L("Homework confirmed done")})
         bal = max(r.points_floor, min(r.points_ceiling, st.career_points + extra))
         for e in plan.effects:
             bal = max(r.points_floor, min(r.points_ceiling, bal + e.delta))
@@ -214,8 +218,9 @@ def schedule_session(body: ScheduleIn, user: User = Depends(require_staff), db: 
     db.add(s)
     from ..notify import notify_student
     notify_student(db, st, type="info", category="session", pref_key="session_scheduled",
-                   title=f"New session with {user.name}",
-                   body=f"{body.title or 'Session'} on {body.session_date:%A, %b %d at %I:%M %p}.", link="/advisor")
+                   title=M("New session with {name}", name=user.name),
+                   body=M("{title} on {date}.", title=body.title or M("Session"), date=D(body.session_date.astimezone(tz()) if body.session_date.tzinfo else body.session_date, "datetime")),
+                   link="/advisor")
     engine.touch(st)
     db.commit()
     return session_dict(s)
@@ -267,11 +272,11 @@ def assign_homework(student_id: str, body: AssignHomeworkIn, user: User = Depend
     t = HomeworkTask(student_id=st.id, assigned_by=user.id, description=body.description.strip(),
                      due_date=body.due_date, point_value=body.point_value if body.point_value is not None else r.pts_homework)
     db.add(t)
-    when = f"by {body.due_date.strftime('%b %-d')}" if body.due_date else "before your next meeting"
+    when = M("by {date}", date=D(body.due_date)) if body.due_date else M("before your next meeting")
     notify_student(db, st, type="info", category="advisor", pref_key="session_notes",
-                   title=f"New task from {user.name.split()[0]} · due {when}",
-                   body=f"{t.description}\n\nWorth +{t.point_value} points if it's done on time. "
-                        f"If it's still pending at the meeting it costs {r.ded_homework_missed}.", link="/advisor")
+                   title=M("New task from {name} · {when}", name=user.name.split()[0], when=when),
+                   body=Cat(t.description, M("Worth +{pts} points if it's done on time. If it's still pending at the meeting it costs {loss}.",
+                                             pts=t.point_value, loss=r.ded_homework_missed)), link="/advisor")
     db.commit()
     return homework_dict(t)
 
@@ -538,7 +543,7 @@ def add_interaction(body: InteractionIn, user: User = Depends(require_staff), db
     db.add(i)
     if body.visibility == "shared":
         notify_student(db, st, type="info", category="advisor", pref_key="session_notes",
-                       title=f"New note from {user.name}", body=body.summary, link="/advisor")
+                       title=M("New note from {name}", name=user.name), body=body.summary, link="/advisor")
     db.commit()
     db.refresh(i)
     return interaction_dict(i)

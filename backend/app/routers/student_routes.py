@@ -7,6 +7,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
+from ..i18n import M
 from .. import engine
 from ..auth import current_user, student_for
 from ..db import get_db
@@ -26,7 +27,7 @@ from ..timeutil import local_today, week_bounds_utc, week_start
 router = APIRouter(tags=["student"])
 
 APP_STATUSES = {"applied", "phone_screen", "technical", "final", "offer", "rejected", "withdrawn"}
-SOURCES = {"extension_linkedin", "extension_indeed", "extension_glassdoor", "extension_greenhouse",
+SOURCES = {"job_radar", "extension_linkedin", "extension_indeed", "extension_glassdoor", "extension_greenhouse",
            "extension_lever", "manual"}
 
 
@@ -344,7 +345,7 @@ def download_resume(vid: str, user: User = Depends(current_user), db: Session = 
             PointsEvent.student_id == st.id, PointsEvent.event_type == "resume",
             PointsEvent.created_at >= start)) or 0
         if n < r.cap_resume_downloads_week:
-            engine.award(db, st, "resume", r.pts_resume_download, f"Tailored resume · {v.title}",
+            engine.award(db, st, "resume", r.pts_resume_download, M("Tailored resume · {what}", what=v.title),
                          source="manual", source_id=v.id, key=f"resume:{v.id}")
     v.downloaded = True
     db.commit()

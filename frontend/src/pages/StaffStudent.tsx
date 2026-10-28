@@ -8,6 +8,7 @@ import { useAuth } from "../lib/auth";
 import { ErrorBox, Modal, Spinner, StatusPill, useToast } from "../components/ui";
 import { IBack } from "../components/Icons";
 import { JourneyTracker } from "../components/Journey";
+import { locale, t } from "../lib/i18n";
 
 type Preview = { effects: { type: string; delta: number; title: string }[]; balance_before: number; balance_after: number;
   status_after: string; streak_after: number; missed_meetings_after: number; reschedules_after: number;
@@ -35,25 +36,25 @@ export default function StaffStudent() {
 
   const setStatus = async (status: string) => {
     await api.patch(`/advisor/students/${st.id}/status`, { status });
-    toast(status === "hired" ? `${st.name} marked as hired` : "Status updated"); reload();
+    toast(status === "hired" ? t("{name} marked as hired", { name: st.name }) : t("Status updated")); reload();
   };
 
   return (
     <>
       <header className="top">
-        <Link to="/staff" style={{ display: "inline-flex", alignItems: "center", gap: 8, fontWeight: 700, minHeight: 44 }}><IBack size={18} />My students</Link>
+        <Link to="/staff" style={{ display: "inline-flex", alignItems: "center", gap: 8, fontWeight: 700, minHeight: 44 }}><IBack size={18} />{t("My students")}</Link>
         <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-          <a className="btn bg" href={`mailto:${st.email}`}>Email {st.name.split(" ")[0]}</a>
+          <a className="btn bg" href={`mailto:${st.email}`}>{t("Email")} {st.name.split(" ")[0]}</a>
           {st.status === "active" ? <>
-            <button className="btn bg" onClick={() => setNtbp(true)}>Not to be placed</button>
-            <button className="btn bg" onClick={() => setStatus("hired")}>Mark as hired</button></>
-            : <button className="btn bg" onClick={() => setStatus("active")}>Reactivate</button>}
+            <button className="btn bg" onClick={() => setNtbp(true)}>{t("Not to be placed")}</button>
+            <button className="btn bg" onClick={() => setStatus("hired")}>{t("Mark as hired")}</button></>
+            : <button className="btn bg" onClick={() => setStatus("active")}>{t("Reactivate")}</button>}
         </div>
       </header>
       {ntbp && <NotToBePlaced studentId={st.id} name={st.name} onClose={() => setNtbp(false)} onDone={(m) => { setNtbp(false); toast(m); reload(); }} />}
       <div className="content">
-        {st.status === "not_to_be_placed" && <div className="strip" role="status"><b>Not to be placed.</b>
-          <span>{st.status_reason}{st.status_changed_at ? ` · since ${fmtDate(st.status_changed_at, { month: "short", day: "numeric", year: "numeric" })}` : ""}. Weekly checks are frozen and {st.name.split(" ")[0]} is left out of job matching.</span></div>}
+        {st.status === "not_to_be_placed" && <div className="strip" role="status"><b>{t("Not to be placed.")}</b>
+          <span>{st.status_reason}{st.status_changed_at ? t(" · since {v0}", { v0: fmtDate(st.status_changed_at, { month: "short", day: "numeric", year: "numeric" }) }) : ""}{t(". Weekly checks are frozen and {first} is left out of job matching.", { first: st.name.split(" ")[0] })}</span></div>}
         <section className="card row" style={{ alignItems: "center" }}>
           <div style={{ display: "flex", gap: 16, alignItems: "center", flex: "1 1 300px" }}>
             <div className="av" style={{ width: 60, height: 60, fontSize: 20 }}>{st.initials}</div>
@@ -62,8 +63,8 @@ export default function StaffStudent() {
               <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 6 }}>
                 <span className="pill pb">{planLabel(st.enrollment_plan)}</span>
                 {st.stage && <span className="pill pg">{stageLabel[st.stage]}</span>}
-                {st.on_hold && <span className="pill pr">On hold · no first 1:1</span>}
-                {st.from_notion && <span className="pill pg">Synced from Notion</span>}
+                {st.on_hold && <span className="pill pr">{t("On hold · no first 1:1")}</span>}
+                {st.from_notion && <span className="pill pg">{t("Synced from Notion")}</span>}
               </div></div>
           </div>
           <div style={{ display: "flex", gap: 12, flexWrap: "wrap", flex: "2 1 520px" }}>
@@ -71,7 +72,7 @@ export default function StaffStudent() {
             <Stat l="Apps this week"><span className="num" style={{ fontSize: 24 }}>{d.week.applications} / {d.week.target}</span></Stat>
             <Stat l="Missed meetings"><span className="num" style={{ fontSize: 24 }}>{d.missed_meetings} / {d.max_missed_meetings}</span></Stat>
             <Stat l="Reschedules used"><span className="num" style={{ fontSize: 24 }}>{st.reschedules_used ?? 0} / 2</span></Stat>
-            <Stat l="Homework streak"><span className="num" style={{ fontSize: 24 }}>{d.homework_streak ? `${d.homework_streak} miss` : "Clear"}</span></Stat>
+            <Stat l="Homework streak"><span className="num" style={{ fontSize: 24 }}>{d.homework_streak ? t("{homework_streak} miss", { homework_streak: d.homework_streak }) : t("Clear")}</span></Stat>
             <Stat l="Deadline"><span className="num" style={{ fontSize: 18 }}>{fmtDate(d.deadline.deadline, { month: "short", day: "numeric", year: "numeric" })}</span></Stat>
           </div>
         </section>
@@ -83,15 +84,15 @@ export default function StaffStudent() {
           <div style={{ flex: "1 1 320px", display: "flex", flexDirection: "column", gap: 24, minWidth: 0 }}>
             <Schedule studentId={st.id} scheduled={scheduled} onDone={(m) => { toast(m); reload(); }} />
             <section className="card" style={{ display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
-              <div style={{ flex: 1 }}><h2 className="h2" style={{ fontSize: 18 }}>Resume</h2>
-                <div className="cap">Build, comment, tailor with AI and approve in Resume Studio.</div></div>
-              <Link className="btn bp sm" to={`/staff/resumes/${st.id}`}>Open resume</Link></section>
+              <div style={{ flex: 1 }}><h2 className="h2" style={{ fontSize: 18 }}>{t("Resume")}</h2>
+                <div className="cap">{t("Build, comment, tailor with AI and approve in Resume Studio.")}</div></div>
+              <Link className="btn bp sm" to={`/staff/resumes/${st.id}`}>{t("Open resume")}</Link></section>
             <AssignTask studentId={st.id} first={st.name.split(" ")[0]} onDone={(m) => { toast(m); reload(); }} />
             <Adjust studentId={st.id} onDone={(m) => { toast(m); reload(); }} />
             <Offer studentId={st.id} offers={apps.data?.items || []} onDone={(m) => { toast(m); reload(); }} />
             <Project studentId={st.id} onDone={(m) => { toast(m); reload(); }} />
             <section className="card stack" style={{ gap: 10 }}>
-              <h2 className="h2">Recent points</h2>
+              <h2 className="h2">{t("Recent points")}</h2>
               {points.data?.events.map((e) => <div key={e.id} style={{ display: "flex", justifyContent: "space-between", gap: 10, fontSize: 14 }}>
                 <span>{e.title}<span className="cap" style={{ display: "block" }}>{relTime(e.created_at)}</span></span>
                 <strong className={e.delta < 0 ? "neg" : "pos"}>{signed(e.delta)}</strong></div>)}
@@ -107,15 +108,15 @@ export default function StaffStudent() {
         </div>
 
         <section className="card stack">
-          <h2 className="h2">Session history</h2>
+          <h2 className="h2">{t("Session history")}</h2>
           {sessions.data?.filter((s) => s.attendance !== "scheduled").map((s) => (
             <div key={s.id} style={{ borderBottom: "1px solid var(--line-soft)", padding: "12px 0" }}>
               <div className="between"><strong>{s.title || sessionType[s.session_type]} · {fmtDate(s.session_date, { weekday: "short", month: "short", day: "numeric" })}</strong>
                 <span className={`pill ${s.attendance === "absent" ? "pr" : s.attendance === "excused" || s.attendance === "rescheduled" ? "pa" : "pb"}`}>{s.attendance === "excused" ? "rescheduled" : s.attendance}{s.points ? ` · ${signed(s.points)}` : ""}</span></div>
               {s.summary && <p className="cap" style={{ fontSize: 14, marginTop: 4 }}>{s.summary}</p>}
-              {s.homework.length > 0 && <div className="cap" style={{ marginTop: 4 }}>Homework: {s.homework.map((h) => `${h.description} (${h.status})`).join(" · ")}</div>}
+              {s.homework.length > 0 && <div className="cap" style={{ marginTop: 4 }}>{t("Homework:")} {s.homework.map((h) => `${h.description} (${h.status})`).join(" · ")}</div>}
             </div>))}
-          {sessions.data?.length === 0 && <div className="empty">No sessions logged yet.</div>}
+          {sessions.data?.length === 0 && <div className="empty">{t("No sessions logged yet.")}</div>}
         </section>
       </div>
     </>);
@@ -148,10 +149,10 @@ function LogSession({ d, scheduledId, scheduledDate, onSaved }: { d: Dashboard; 
   });
 
   useEffect(() => {
-    const t = setTimeout(async () => {
+    const it = setTimeout(async () => {
       try { setPreview(await api.post<Preview>("/advisor/sessions/preview", payload())); } catch { /* preview is best-effort */ }
     }, 300);
-    return () => clearTimeout(t);
+    return () => clearTimeout(it);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [date, type, att, done, summary.length > 0, hw.filter((h) => h.description.trim().length >= 3).length, d.points]);
 
@@ -167,64 +168,64 @@ function LogSession({ d, scheduledId, scheduledDate, onSaved }: { d: Dashboard; 
   const first = d.student.name.split(" ")[0];
   return (
     <form className="card stack" style={{ flex: "2 1 560px", gap: 20, minWidth: 0 }} onSubmit={save}>
-      <div className="between"><h2 style={{ fontSize: 20, fontWeight: 800 }}>Log session</h2><span className="cap">{first} gets your notes by email as soon as you save</span></div>
+      <div className="between"><h2 style={{ fontSize: 20, fontWeight: 800 }}>{t("Log session")}</h2><span className="cap">{first} {t("gets your notes by email as soon as you save")}</span></div>
       <div className="grid" style={{ gap: 14, gridTemplateColumns: "repeat(auto-fit,minmax(200px,1fr))" }}>
-        <div><label className="lb" htmlFor="sd">Date and time</label><input className="in" id="sd" type="datetime-local" value={date} onChange={(e) => setDate(e.target.value)} /></div>
-        <div><label className="lb" htmlFor="stp">Session type</label><select className="in" id="stp" value={type} onChange={(e) => setType(e.target.value)}>
-          <option value="one_on_one">1:1 meeting</option><option value="group_workshop">GeekForce session</option><option value="mock_interview">Mock interview</option></select></div>
+        <div><label className="lb" htmlFor="sd">{t("Date and time")}</label><input className="in" id="sd" type="datetime-local" value={date} onChange={(e) => setDate(e.target.value)} /></div>
+        <div><label className="lb" htmlFor="stp">{t("Session type")}</label><select className="in" id="stp" value={type} onChange={(e) => setType(e.target.value)}>
+          <option value="one_on_one">{t("1:1 meeting")}</option><option value="group_workshop">{t("GeekForce session")}</option><option value="mock_interview">{t("Mock interview")}</option></select></div>
       </div>
       <fieldset style={{ border: "none", padding: 0, margin: 0 }}>
-        <legend className="lb">Attendance</legend>
+        <legend className="lb">{t("Attendance")}</legend>
         <div className="seg" role="radiogroup">
-          {[["attended", "Attended"], ["rescheduled", `Rescheduled (${d.student.reschedules_used ?? 0} of 2 used)`], ["absent", "Absent"]].map(([v, l]) =>
+          {[["attended", t("Attended")], ["rescheduled", t("Rescheduled ({v0} of 2 used)", { v0: d.student.reschedules_used ?? 0 })], ["absent", t("Absent")]].map(([v, l]) =>
             <button type="button" key={v} role="radio" aria-checked={att === v} className={att === v ? "on" : ""} onClick={() => setAtt(v)}>{l}</button>)}
         </div>
       </fieldset>
-      <div><label className="lb" htmlFor="ss">Session notes</label><textarea className="in" id="ss" value={summary} onChange={(e) => setSummary(e.target.value)} placeholder="What you covered, decisions, next steps" /></div>
+      <div><label className="lb" htmlFor="ss">{t("Session notes")}</label><textarea className="in" id="ss" value={summary} onChange={(e) => setSummary(e.target.value)} placeholder={t("What you covered, decisions, next steps")} /></div>
 
       {type === "one_on_one" && d.pending_homework.length > 0 && (
         <div className="stack" style={{ gap: 10 }}>
-          <div className="lb" style={{ margin: 0 }}>Homework still pending</div>
-          {d.pending_homework.map((t) => {
-            const on = done.includes(t.id);
-            return <label key={t.id} className="hw" style={on ? undefined : { borderColor: "#F6CACC", background: "#FFF8F8" }}>
-              <input type="checkbox" checked={on} onChange={() => setDone(on ? done.filter((x) => x !== t.id) : [...done, t.id])} />
-              <span style={{ flex: 1, fontSize: 14 }}>{t.description}{t.due_date && <span className="cap"> · due {fmtDate(t.due_date)}</span>}</span>
-              <span className={`pill ${on ? "pb" : "pr"}`}>{on ? `Done · +${t.point_value}` : "Will be marked missed"}</span></label>;
+          <div className="lb" style={{ margin: 0 }}>{t("Homework still pending")}</div>
+          {d.pending_homework.map((it) => {
+            const on = done.includes(it.id);
+            return <label key={it.id} className="hw" style={on ? undefined : { borderColor: "#F6CACC", background: "#FFF8F8" }}>
+              <input type="checkbox" checked={on} onChange={() => setDone(on ? done.filter((x) => x !== it.id) : [...done, it.id])} />
+              <span style={{ flex: 1, fontSize: 14 }}>{it.description}{it.due_date && <span className="cap"> {t("· due")} {fmtDate(it.due_date)}</span>}</span>
+              <span className={`pill ${on ? "pb" : "pr"}`}>{on ? t("Done · +{point_value}", { point_value: it.point_value }) : t("Will be marked missed")}</span></label>;
           })}
-          <div className="cap">Tick the tasks {first} actually completed. Unticked tasks count as missed.</div>
+          <div className="cap">{t("Tick the tasks {first} actually completed. Unticked tasks count as missed.", { first })}</div>
         </div>)}
 
       <div className="stack" style={{ gap: 10 }}>
-        <div className="lb" style={{ margin: 0 }}>New homework</div>
+        <div className="lb" style={{ margin: 0 }}>{t("New homework")}</div>
         {hw.map((h, i) => (
           <div key={i} style={{ display: "grid", gap: 10, gridTemplateColumns: "minmax(0,3fr) minmax(0,1.3fr) auto" }}>
-            <label><span className="sr">Task {i + 1}</span><input className="in" placeholder="e.g. Publish one original LinkedIn post" value={h.description} onChange={(e) => setHw(hw.map((x, j) => j === i ? { ...x, description: e.target.value } : x))} /></label>
-            <label><span className="sr">Due date {i + 1}</span><input className="in" type="date" value={h.due_date} onChange={(e) => setHw(hw.map((x, j) => j === i ? { ...x, due_date: e.target.value } : x))} /></label>
-            <button type="button" className="icon-btn" aria-label="Remove task" onClick={() => setHw(hw.length > 1 ? hw.filter((_, j) => j !== i) : [{ description: "", due_date: "" }])}>✕</button>
+            <label><span className="sr">{t("Task")} {i + 1}</span><input className="in" placeholder={t("e.g. Publish one original LinkedIn post")} value={h.description} onChange={(e) => setHw(hw.map((x, j) => j === i ? { ...x, description: e.target.value } : x))} /></label>
+            <label><span className="sr">{t("Due date")} {i + 1}</span><input className="in" type="date" value={h.due_date} onChange={(e) => setHw(hw.map((x, j) => j === i ? { ...x, due_date: e.target.value } : x))} /></label>
+            <button type="button" className="icon-btn" aria-label={t("Remove task")} onClick={() => setHw(hw.length > 1 ? hw.filter((_, j) => j !== i) : [{ description: "", due_date: "" }])}>✕</button>
           </div>))}
-        <button type="button" className="btn bg sm" style={{ alignSelf: "flex-start" }} onClick={() => setHw([...hw, { description: "", due_date: "" }])}>+ Add task</button>
+        <button type="button" className="btn bg sm" style={{ alignSelf: "flex-start" }} onClick={() => setHw([...hw, { description: "", due_date: "" }])}>{t("+ Add task")}</button>
       </div>
       <div className="grid" style={{ gap: 10, gridTemplateColumns: "minmax(0,1fr) minmax(0,2fr)" }}>
-        <div><label className="lb" htmlFor="rl">Resource name</label><input className="in" id="rl" value={resource.label} onChange={(e) => setResource({ ...resource, label: e.target.value })} /></div>
-        <div><label className="lb" htmlFor="ru">Resource link</label><input className="in" id="ru" type="url" placeholder="https://…" value={resource.url} onChange={(e) => setResource({ ...resource, url: e.target.value })} /></div>
+        <div><label className="lb" htmlFor="rl">{t("Resource name")}</label><input className="in" id="rl" value={resource.label} onChange={(e) => setResource({ ...resource, label: e.target.value })} /></div>
+        <div><label className="lb" htmlFor="ru">{t("Resource link")}</label><input className="in" id="ru" type="url" placeholder="https://…" value={resource.url} onChange={(e) => setResource({ ...resource, url: e.target.value })} /></div>
       </div>
 
       {preview && (
         <div style={{ background: "var(--blue-tint)", borderRadius: 14, padding: "18px 20px", display: "flex", flexDirection: "column", gap: 4 }} aria-live="polite">
-          <div style={{ fontWeight: 800, color: "#0F3F85", marginBottom: 4 }}>When you save, this happens automatically</div>
-          {preview.effects.length === 0 && <div style={{ fontSize: 14 }}>No point changes.</div>}
+          <div style={{ fontWeight: 800, color: "#0F3F85", marginBottom: 4 }}>{t("When you save, this happens automatically")}</div>
+          {preview.effects.length === 0 && <div style={{ fontSize: 14 }}>{t("No point changes.")}</div>}
           {preview.effects.map((e, i) => <div key={i} style={{ display: "flex", justifyContent: "space-between", gap: 12, padding: "8px 0", fontSize: 14, borderBottom: "1px dashed var(--blue-line)" }}>
             <span>{e.title}</span><strong className={e.delta < 0 ? "neg" : "pos"}>{signed(e.delta)}</strong></div>)}
           {preview.notes.map((n) => <div key={n} style={{ fontSize: 14, padding: "8px 0", borderBottom: "1px dashed var(--blue-line)" }}>{n}</div>)}
-          {preview.emails.map((n) => <div key={n} style={{ display: "flex", justifyContent: "space-between", fontSize: 14, padding: "8px 0", borderBottom: "1px dashed var(--blue-line)" }}><span>Email: {n}</span><strong>ActiveCampaign</strong></div>)}
-          <div style={{ display: "flex", justifyContent: "space-between", fontWeight: 800, paddingTop: 8 }}><span>Balance</span>
+          {preview.emails.map((n) => <div key={n} style={{ display: "flex", justifyContent: "space-between", fontSize: 14, padding: "8px 0", borderBottom: "1px dashed var(--blue-line)" }}><span>{t("Email:")} {n}</span><strong>{t("ActiveCampaign")}</strong></div>)}
+          <div style={{ display: "flex", justifyContent: "space-between", fontWeight: 800, paddingTop: 8 }}><span>{t("Balance")}</span>
             <span>{preview.balance_before} → {preview.balance_after} · {statusLabel[preview.status_after] || preview.status_after}</span></div>
           {preview.status_after === "suspended" && d.status !== "suspended" && d.status !== "not_eligible" &&
-            <div className="err" style={{ marginTop: 8 }}>Saving this suspends {first}'s Job Guarantee permanently. Only an admin can reverse it.</div>}
+            <div className="err" style={{ marginTop: 8 }}>{t("Saving this suspends {first}'s Job Guarantee permanently. Only an admin can reverse it.", { first })}</div>}
         </div>)}
       <ErrorBox error={err} />
-      <button className="btn bp" style={{ alignSelf: "flex-start" }} disabled={busy}>{busy ? "Saving…" : "Save session"}</button>
+      <button className="btn bp" style={{ alignSelf: "flex-start" }} disabled={busy}>{busy ? t("Saving…") : t("Save session")}</button>
     </form>);
 }
 
@@ -234,19 +235,19 @@ function Schedule({ studentId, scheduled, onDone }: { studentId: string; schedul
   const [err, setErr] = useState<unknown>(null);
   const submit = async (e: FormEvent) => {
     e.preventDefault();
-    try { await api.post("/advisor/sessions/schedule", { student_id: studentId, session_date: new Date(date).toISOString(), session_type: type, title: type === "one_on_one" ? "1:1 meeting" : sessionType[type] }); setDate(""); onDone("Session scheduled · student notified"); }
+    try { await api.post("/advisor/sessions/schedule", { student_id: studentId, session_date: new Date(date).toISOString(), session_type: type, title: type === "one_on_one" ? "1:1 meeting" : sessionType[type] }); setDate(""); onDone(t("Session scheduled · student notified")); }
     catch (e) { setErr(e); }
   };
   return <form className="card stack" onSubmit={submit}>
-    <h2 className="h2">Next session</h2>
-    {scheduled && <div className="ok">Booked: {new Date(scheduled.session_date).toLocaleString("en-US", { weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}</div>}
+    <h2 className="h2">{t("Next session")}</h2>
+    {scheduled && <div className="ok">{t("Booked:")} {new Date(scheduled.session_date).toLocaleString(locale(), { weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}</div>}
     <div className="grid" style={{ gap: 10, gridTemplateColumns: "1fr 1fr" }}>
-      <div><label className="lb" htmlFor="nd">When</label><input className="in" id="nd" type="datetime-local" required value={date} onChange={(e) => setDate(e.target.value)} /></div>
-      <div><label className="lb" htmlFor="nt">Type</label><select className="in" id="nt" value={type} onChange={(e) => setType(e.target.value)}>
-        <option value="one_on_one">1:1</option><option value="group_workshop">Workshop</option><option value="mock_interview">Mock interview</option></select></div>
+      <div><label className="lb" htmlFor="nd">{t("When")}</label><input className="in" id="nd" type="datetime-local" required value={date} onChange={(e) => setDate(e.target.value)} /></div>
+      <div><label className="lb" htmlFor="nt">{t("Type")}</label><select className="in" id="nt" value={type} onChange={(e) => setType(e.target.value)}>
+        <option value="one_on_one">1:1</option><option value="group_workshop">{t("Workshop")}</option><option value="mock_interview">{t("Mock interview")}</option></select></div>
     </div>
     <ErrorBox error={err} />
-    <button className="btn bg" style={{ alignSelf: "flex-start" }}>Schedule</button>
+    <button className="btn bg" style={{ alignSelf: "flex-start" }}>{t("Schedule")}</button>
   </form>;
 }
 
@@ -257,16 +258,16 @@ function Adjust({ studentId, onDone }: { studentId: string; onDone: (m: string) 
   const [err, setErr] = useState<unknown>(null);
   const submit = async (e: FormEvent) => {
     e.preventDefault();
-    try { const r = await api.post<{ points: number }>("/advisor/points/manual", { student_id: studentId, delta: dir * Number(amount), reason }); setReason(""); onDone(`Adjustment applied · now ${r.points}`); }
+    try { const r = await api.post<{ points: number }>("/advisor/points/manual", { student_id: studentId, delta: dir * Number(amount), reason }); setReason(""); onDone(t("Adjustment applied · now {points}", { points: r.points })); }
     catch (e) { setErr(e); }
   };
   return <form className="card stack" onSubmit={submit}>
-    <h2 className="h2">Adjust points</h2>
-    <div className="seg"><button type="button" className={dir > 0 ? "on" : ""} onClick={() => setDir(1)}>Add</button><button type="button" className={dir < 0 ? "on" : ""} onClick={() => setDir(-1)}>Remove</button></div>
-    <div><label className="lb" htmlFor="pa">Points</label><input className="in" id="pa" type="number" min={1} max={100} required value={amount} onChange={(e) => setAmount(e.target.value)} /></div>
-    <div><label className="lb" htmlFor="pr">Reason (required, visible to admins)</label><textarea className="in" id="pr" style={{ minHeight: 84 }} required minLength={5} placeholder="e.g. Grace points: documented medical appointment" value={reason} onChange={(e) => setReason(e.target.value)} /></div>
+    <h2 className="h2">{t("Adjust points")}</h2>
+    <div className="seg"><button type="button" className={dir > 0 ? "on" : ""} onClick={() => setDir(1)}>{t("Add")}</button><button type="button" className={dir < 0 ? "on" : ""} onClick={() => setDir(-1)}>{t("Remove")}</button></div>
+    <div><label className="lb" htmlFor="pa">{t("Points")}</label><input className="in" id="pa" type="number" min={1} max={100} required value={amount} onChange={(e) => setAmount(e.target.value)} /></div>
+    <div><label className="lb" htmlFor="pr">{t("Reason (required, visible to admins)")}</label><textarea className="in" id="pr" style={{ minHeight: 84 }} required minLength={5} placeholder={t("e.g. Grace points: documented medical appointment")} value={reason} onChange={(e) => setReason(e.target.value)} /></div>
     <ErrorBox error={err} />
-    <button className="btn bp" style={{ alignSelf: "flex-start" }}>Apply adjustment</button>
+    <button className="btn bp" style={{ alignSelf: "flex-start" }}>{t("Apply adjustment")}</button>
   </form>;
 }
 
@@ -281,28 +282,28 @@ function Offer({ studentId, offers, onDone }: { studentId: string; offers: AppIt
     const name = offers.find((o) => o.id === appId)?.company || company;
     try { await api.post("/advisor/offer-rejection", { student_id: studentId, company: name, application_id: appId || null, justification: just || null, justification_approved: ok });
       if (appId) await api.patch(`/applications/${appId}`, { status: "withdrawn" });
-      setJust(""); setOk(false); onDone(ok ? "Offer rejection recorded, justified (no deduction)" : "Offer rejection recorded · −30"); }
+      setJust(""); setOk(false); onDone(ok ? t("Offer rejection recorded, justified (no deduction)") : t("Offer rejection recorded · −30")); }
     catch (e) { setErr(e); }
   };
   return <form className="card stack" onSubmit={submit}>
-    <div className="between"><h2 className="h2">Report offer rejected</h2><span className="pill pr">−30 unless justified</span></div>
-    {offers.length > 0 ? <div><label className="lb" htmlFor="oc">Offer</label><select className="in" id="oc" required value={appId} onChange={(e) => setAppId(e.target.value)}>
-      <option value="">Choose…</option>{offers.map((o) => <option key={o.id} value={o.id}>{o.company} · {o.role}</option>)}</select></div>
-      : <div><label className="lb" htmlFor="ocn">Company</label><input className="in" id="ocn" required value={company} onChange={(e) => setCompany(e.target.value)} /></div>}
-    <div><label className="lb" htmlFor="oj">Student's written reason</label><textarea className="in" id="oj" style={{ minHeight: 84 }} value={just} onChange={(e) => setJust(e.target.value)} /></div>
-    <label style={{ display: "flex", gap: 10, alignItems: "center", fontSize: 14 }}><input type="checkbox" style={{ width: 18, height: 18, accentColor: "var(--blue-deep)" }} checked={ok} onChange={(e) => setOk(e.target.checked)} />Justification approved (no deduction)</label>
+    <div className="between"><h2 className="h2">{t("Report offer rejected")}</h2><span className="pill pr">{t("−30 unless justified")}</span></div>
+    {offers.length > 0 ? <div><label className="lb" htmlFor="oc">{t("Offer")}</label><select className="in" id="oc" required value={appId} onChange={(e) => setAppId(e.target.value)}>
+      <option value="">{t("Choose…")}</option>{offers.map((o) => <option key={o.id} value={o.id}>{o.company} · {o.role}</option>)}</select></div>
+      : <div><label className="lb" htmlFor="ocn">{t("Company")}</label><input className="in" id="ocn" required value={company} onChange={(e) => setCompany(e.target.value)} /></div>}
+    <div><label className="lb" htmlFor="oj">{t("Student's written reason")}</label><textarea className="in" id="oj" style={{ minHeight: 84 }} value={just} onChange={(e) => setJust(e.target.value)} /></div>
+    <label style={{ display: "flex", gap: 10, alignItems: "center", fontSize: 14 }}><input type="checkbox" style={{ width: 18, height: 18, accentColor: "var(--blue-deep)" }} checked={ok} onChange={(e) => setOk(e.target.checked)} />{t("Justification approved (no deduction)")}</label>
     <ErrorBox error={err} />
-    <button className="btn bd" style={{ alignSelf: "flex-start" }}>Submit report</button>
+    <button className="btn bd" style={{ alignSelf: "flex-start" }}>{t("Submit report")}</button>
   </form>;
 }
 
 function Project({ studentId, onDone }: { studentId: string; onDone: (m: string) => void }) {
   const [title, setTitle] = useState("");
-  const submit = async (e: FormEvent) => { e.preventDefault(); await api.post("/advisor/project", { student_id: studentId, title }); setTitle(""); onDone("Project recorded · +20"); };
+  const submit = async (e: FormEvent) => { e.preventDefault(); await api.post("/advisor/project", { student_id: studentId, title }); setTitle(""); onDone(t("Project recorded · +20")); };
   return <form className="card stack" onSubmit={submit}>
-    <div className="between"><h2 className="h2">Project received</h2><span className="pill pb">+20</span></div>
-    <div><label className="lb" htmlFor="pj">Project</label><input className="in" id="pj" required placeholder="e.g. Portfolio site v2" value={title} onChange={(e) => setTitle(e.target.value)} /></div>
-    <button className="btn bg" style={{ alignSelf: "flex-start" }}>Confirm receipt</button>
+    <div className="between"><h2 className="h2">{t("Project received")}</h2><span className="pill pb">+20</span></div>
+    <div><label className="lb" htmlFor="pj">{t("Project")}</label><input className="in" id="pj" required placeholder={t("e.g. Portfolio site v2")} value={title} onChange={(e) => setTitle(e.target.value)} /></div>
+    <button className="btn bg" style={{ alignSelf: "flex-start" }}>{t("Confirm receipt")}</button>
   </form>;
 }
 
@@ -321,35 +322,35 @@ function Interactions({ studentId }: { studentId: string }) {
   };
   const done = async (i: Interaction) => { await api.patch(`/advisor/interactions/${i.id}`, { follow_up_done: true }); list.reload(); };
   return <section className="card stack" style={{ flex: "3 1 520px", minWidth: 0 }}>
-    <div className="between"><h2 className="h2">Interaction log</h2><span className="cap">Every touchpoint outside sessions</span></div>
+    <div className="between"><h2 className="h2">{t("Interaction log")}</h2><span className="cap">{t("Every touchpoint outside sessions")}</span></div>
     <form className="stack" style={{ gap: 10, background: "var(--bg2)", borderRadius: 12, padding: 16 }} onSubmit={submit}>
       <div className="grid" style={{ gap: 10, gridTemplateColumns: "repeat(auto-fit,minmax(150px,1fr))" }}>
-        <div><label className="lb" htmlFor="ic">Channel</label><select className="in" id="ic" value={f.channel} onChange={(e) => setF({ ...f, channel: e.target.value })}>
+        <div><label className="lb" htmlFor="ic">{t("Channel")}</label><select className="in" id="ic" value={f.channel} onChange={(e) => setF({ ...f, channel: e.target.value })}>
           {Object.entries(channelLabel).map(([k, l]) => <option key={k} value={k}>{l}</option>)}</select></div>
-        <div><label className="lb" htmlFor="iw">When</label><input className="in" id="iw" type="datetime-local" value={f.occurred_at} onChange={(e) => setF({ ...f, occurred_at: e.target.value })} /></div>
-        <div><label className="lb" htmlFor="if">Follow up on (optional)</label><input className="in" id="if" type="date" min={todayISO()} value={f.follow_up_date} onChange={(e) => setF({ ...f, follow_up_date: e.target.value })} /></div>
+        <div><label className="lb" htmlFor="iw">{t("When")}</label><input className="in" id="iw" type="datetime-local" value={f.occurred_at} onChange={(e) => setF({ ...f, occurred_at: e.target.value })} /></div>
+        <div><label className="lb" htmlFor="if">{t("Follow up on (optional)")}</label><input className="in" id="if" type="date" min={todayISO()} value={f.follow_up_date} onChange={(e) => setF({ ...f, follow_up_date: e.target.value })} /></div>
       </div>
-      <div><label className="lb" htmlFor="is">What happened</label><textarea className="in" id="is" style={{ minHeight: 80 }} required value={f.summary} onChange={(e) => setF({ ...f, summary: e.target.value })} placeholder="e.g. Called about the Globant offer; she'll send her counter by Friday." /></div>
+      <div><label className="lb" htmlFor="is">{t("What happened")}</label><textarea className="in" id="is" style={{ minHeight: 80 }} required value={f.summary} onChange={(e) => setF({ ...f, summary: e.target.value })} placeholder={t("e.g. Called about the Globant offer; she'll send her counter by Friday.")} /></div>
       <div className="between">
         <div className="seg" style={{ flex: "0 1 360px" }}>
-          <button type="button" className={f.visibility === "private" ? "on" : ""} onClick={() => setF({ ...f, visibility: "private" })}>Private (staff only)</button>
-          <button type="button" className={f.visibility === "shared" ? "on" : ""} onClick={() => setF({ ...f, visibility: "shared" })}>Shared with student</button>
+          <button type="button" className={f.visibility === "private" ? "on" : ""} onClick={() => setF({ ...f, visibility: "private" })}>{t("Private (staff only)")}</button>
+          <button type="button" className={f.visibility === "shared" ? "on" : ""} onClick={() => setF({ ...f, visibility: "shared" })}>{t("Shared with student")}</button>
         </div>
-        <button className="btn bp">Add to log</button>
+        <button className="btn bp">{t("Add to log")}</button>
       </div>
       <ErrorBox error={err} />
     </form>
-    {list.data?.length === 0 && <div className="empty">No interactions logged yet.</div>}
+    {list.data?.length === 0 && <div className="empty">{t("No interactions logged yet.")}</div>}
     {list.data?.map((i) => (
       <div key={i.id} style={{ display: "flex", gap: 12, padding: "12px 0", borderBottom: "1px solid var(--line-soft)" }}>
         <span className="pill pg" style={{ alignSelf: "flex-start" }}>{channelLabel[i.channel]}</span>
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ whiteSpace: "pre-line" }}>{i.summary}</div>
-          <div className="cap">{relTime(i.occurred_at)}{i.advisor ? ` · ${i.advisor}` : ""} · {i.visibility === "shared" ? "shared with student" : "private"}</div>
+          <div className="cap">{relTime(i.occurred_at)}{i.advisor ? ` · ${i.advisor}` : ""} · {i.visibility === "shared" ? t("shared with student") : "private"}</div>
           {i.follow_up_date && !i.follow_up_done && <div style={{ marginTop: 6, display: "flex", gap: 8, alignItems: "center" }}>
-            <span className={`pill ${i.follow_up_date <= todayISO() ? "pa" : "pb"}`}>Follow up {fmtDate(i.follow_up_date)}</span>
-            <button className="btn bg sm" onClick={() => done(i)}>Mark done</button></div>}
-          {i.follow_up_done && <div className="cap">Follow-up done</div>}
+            <span className={`pill ${i.follow_up_date <= todayISO() ? "pa" : "pb"}`}>{t("Follow up")} {fmtDate(i.follow_up_date)}</span>
+            <button className="btn bg sm" onClick={() => done(i)}>{t("Mark done")}</button></div>}
+          {i.follow_up_done && <div className="cap">{t("Follow-up done")}</div>}
         </div>
       </div>))}
   </section>;
@@ -360,32 +361,32 @@ function Entries({ studentId, onDone }: { studentId: string; onDone: (m: string)
   const [rejecting, setRejecting] = useState<Activity | null>(null);
   const [reason, setReason] = useState("");
   const [err, setErr] = useState<unknown>(null);
-  const label = { outreach: "Outreach", linkedin_post: "LinkedIn", networking: "Networking" } as const;
+  const label = { outreach: t("Outreach"), linkedin_post: t("LinkedIn"), networking: t("Networking") } as const;
   const submit = async (e: FormEvent) => {
     e.preventDefault();
-    try { await api.post(`/advisor/activities/${rejecting!.id}/reject`, { reason }); setRejecting(null); setReason(""); list.reload(); onDone("Entry rejected · points removed · student notified"); }
+    try { await api.post(`/advisor/activities/${rejecting!.id}/reject`, { reason }); setRejecting(null); setReason(""); list.reload(); onDone(t("Entry rejected · points removed · student notified")); }
     catch (e) { setErr(e); }
   };
   const items = list.data?.items.slice(0, 12) || [];
   return <section className="card stack" style={{ flex: "2 1 340px", minWidth: 0 }}>
-    <div className="between"><h2 className="h2">Self-reported entries</h2><span className="cap">Spot-check and reject if unverifiable</span></div>
-    {items.length === 0 && <div className="empty">Nothing logged yet.</div>}
+    <div className="between"><h2 className="h2">{t("Self-reported entries")}</h2><span className="cap">{t("Spot-check and reject if unverifiable")}</span></div>
+    {items.length === 0 && <div className="empty">{t("Nothing logged yet.")}</div>}
     {items.map((a) => (
       <div key={a.id} style={{ display: "flex", gap: 10, alignItems: "center", padding: "10px 0", borderBottom: "1px solid var(--line-soft)" }}>
         <span className="pill pg">{label[a.kind]}</span>
         <div style={{ flex: 1, minWidth: 0, fontSize: 14 }}>
-          {a.kind === "linkedin_post" ? (a.url ? <a href={a.url} target="_blank" rel="noreferrer">{a.post_type === "original" ? "Original post" : "Repost with commentary"}</a> : "Post")
+          {a.kind === "linkedin_post" ? (a.url ? <a href={a.url} target="_blank" rel="noreferrer">{a.post_type === "original" ? t("Original post") : t("Repost with commentary")}</a> : t("Post"))
             : [a.contact_name, a.company, a.notes].filter(Boolean).join(" · ")}
           <div className="cap">{fmtDate(a.occurred_on)}{a.platform ? ` · ${a.platform}` : ""}</div></div>
-        {a.status === "rejected" ? <span className="pill pr" title={a.rejected_reason || ""}>Rejected</span>
-          : <button className="btn bd sm" onClick={() => setRejecting(a)}>Reject{a.points_awarded ? ` · −${a.points_awarded}` : ""}</button>}
+        {a.status === "rejected" ? <span className="pill pr" title={a.rejected_reason || ""}>{t("Rejected")}</span>
+          : <button className="btn bd sm" onClick={() => setRejecting(a)}>{t("Reject")}{a.points_awarded ? ` · −${a.points_awarded}` : ""}</button>}
       </div>))}
-    {rejecting && <Modal title="Reject this entry" onClose={() => setRejecting(null)}>
+    {rejecting && <Modal title={t("Reject this entry")} onClose={() => setRejecting(null)}>
       <form className="stack" onSubmit={submit}>
-        <p className="cap" style={{ fontSize: 14 }}>The points come off and the student sees your reason.</p>
-        <div><label className="lb" htmlFor="rr">Reason</label><textarea className="in" id="rr" required minLength={5} value={reason} onChange={(e) => setReason(e.target.value)} placeholder="e.g. Couldn't find this message in the screenshot you shared." /></div>
+        <p className="cap" style={{ fontSize: 14 }}>{t("The points come off and the student sees your reason.")}</p>
+        <div><label className="lb" htmlFor="rr">{t("Reason")}</label><textarea className="in" id="rr" required minLength={5} value={reason} onChange={(e) => setReason(e.target.value)} placeholder={t("e.g. Couldn't find this message in the screenshot you shared.")} /></div>
         <ErrorBox error={err} />
-        <button className="btn bd">Reject entry</button>
+        <button className="btn bd">{t("Reject entry")}</button>
       </form></Modal>}
   </section>;
 }
@@ -398,18 +399,18 @@ function Reinstate({ studentId, since, onDone }: { studentId: string; since: str
   const [err, setErr] = useState<unknown>(null);
   const submit = async (e: FormEvent) => {
     e.preventDefault();
-    try { await api.post(`/admin/students/${studentId}/reinstate`, { reason, set_points: pts ? Number(pts) : null }); setOpen(false); onDone("Guarantee reinstated · logged"); }
+    try { await api.post(`/admin/students/${studentId}/reinstate`, { reason, set_points: pts ? Number(pts) : null }); setOpen(false); onDone(t("Guarantee reinstated · logged")); }
     catch (e) { setErr(e); }
   };
   return <section className="callout" style={{ background: "var(--red-soft)", color: "#7F1D1D" }}>
-    <div style={{ flex: "1 1 320px" }}><strong>Job Guarantee suspended{since ? ` on ${fmtDate(since, { month: "short", day: "numeric", year: "numeric" })}` : ""}.</strong> Suspension is permanent; only an admin can reinstate it, with a reason.</div>
-    {user?.role === "admin" && <button className="btn bd" onClick={() => setOpen(true)}>Reinstate guarantee</button>}
-    {open && <Modal title="Reinstate the Job Guarantee" onClose={() => setOpen(false)}>
+    <div style={{ flex: "1 1 320px" }}><strong>{t("Job Guarantee suspended")}{since ? t(" on {v0}", { v0: fmtDate(since, { month: "short", day: "numeric", year: "numeric" }) }) : ""}.</strong> {t("Suspension is permanent; only an admin can reinstate it, with a reason.")}</div>
+    {user?.role === "admin" && <button className="btn bd" onClick={() => setOpen(true)}>{t("Reinstate guarantee")}</button>}
+    {open && <Modal title={t("Reinstate the Job Guarantee")} onClose={() => setOpen(false)}>
       <form className="stack" onSubmit={submit}>
-        <div><label className="lb" htmlFor="rs">Reason (saved in the audit log)</label><textarea className="in" id="rs" required minLength={10} value={reason} onChange={(e) => setReason(e.target.value)} placeholder="e.g. Deduction was logged against the wrong student." /></div>
-        <div><label className="lb" htmlFor="rp">Correct the balance to (optional, 60 or more)</label><input className="in" id="rp" type="number" min={60} max={100} value={pts} onChange={(e) => setPts(e.target.value)} /></div>
+        <div><label className="lb" htmlFor="rs">{t("Reason (saved in the audit log)")}</label><textarea className="in" id="rs" required minLength={10} value={reason} onChange={(e) => setReason(e.target.value)} placeholder={t("e.g. Deduction was logged against the wrong student.")} /></div>
+        <div><label className="lb" htmlFor="rp">{t("Correct the balance to (optional, 60 or more)")}</label><input className="in" id="rp" type="number" min={60} max={100} value={pts} onChange={(e) => setPts(e.target.value)} /></div>
         <ErrorBox error={err} />
-        <button className="btn bp">Reinstate</button>
+        <button className="btn bp">{t("Reinstate")}</button>
       </form></Modal>}
   </section>;
 }
@@ -419,18 +420,18 @@ function NotToBePlaced({ studentId, name, onClose, onDone }: { studentId: string
   const [err, setErr] = useState<unknown>(null);
   const save = async (e: FormEvent) => {
     e.preventDefault(); setErr(null);
-    try { await api.patch(`/advisor/students/${studentId}/status`, { status: "not_to_be_placed", reason }); onDone(`${name} marked as not to be placed`); }
+    try { await api.patch(`/advisor/students/${studentId}/status`, { status: "not_to_be_placed", reason }); onDone(t("{name} marked as not to be placed", { name: name })); }
     catch (e) { setErr(e); }
   };
-  return <Modal title={`Mark ${name.split(" ")[0]} as not to be placed?`} onClose={onClose}>
+  return <Modal title={t("Mark {v0} as not to be placed?", { v0: name.split(" ")[0] })} onClose={onClose}>
     <form className="stack" onSubmit={save}>
-      <p className="cap" style={{ fontSize: 14 }}>Weekly checks and deductions stop, and {name.split(" ")[0]} won't appear in job matches or shortlists. You can reactivate at any time. Also update Placement Status in Notion so both match.</p>
-      <div><label className="lb" htmlFor="ntr">Reason (kept in the audit log)</label>
-        <textarea className="in" id="ntr" value={reason} onChange={(e) => setReason(e.target.value)} placeholder="e.g. Decided to stay in their current job; not job hunting" /></div>
+      <p className="cap" style={{ fontSize: 14 }}>{t("Weekly checks and deductions stop, and {first} won't appear in job matches or shortlists. You can reactivate at any time. Also update Placement Status in Notion so both match.", { first: name.split(" ")[0] })}</p>
+      <div><label className="lb" htmlFor="ntr">{t("Reason (kept in the audit log)")}</label>
+        <textarea className="in" id="ntr" value={reason} onChange={(e) => setReason(e.target.value)} placeholder={t("e.g. Decided to stay in their current job; not job hunting")} /></div>
       <ErrorBox error={err} />
       <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
-        <button type="button" className="btn bg" onClick={onClose}>Cancel</button>
-        <button className="btn bp" disabled={reason.trim().length < 10}>Confirm</button></div>
+        <button type="button" className="btn bg" onClick={onClose}>{t("Cancel")}</button>
+        <button className="btn bp" disabled={reason.trim().length < 10}>{t("Confirm")}</button></div>
     </form></Modal>;
 }
 
@@ -444,29 +445,29 @@ function AssignTask({ studentId, first, onDone }: { studentId: string; first: st
     e.preventDefault(); setBusy(true); setErr(null);
     try {
       await api.post(`/advisor/students/${studentId}/homework`, { description: desc.trim(), due_date: mode === "date" ? due : null });
-      setDesc(""); setDue(""); onDone(`Task sent to ${first}`);
+      setDesc(""); setDue(""); onDone(t("Task sent to {first}", { first: first }));
     } catch (e) { setErr(e); } finally { setBusy(false); }
   };
   return <form className="card stack" style={{ gap: 12 }} onSubmit={save}>
-    <h2 className="h2">Send a task</h2>
-    <div><label className="lb" htmlFor="tk">What should {first} do?</label>
-      <textarea className="in" id="tk" style={{ minHeight: 80 }} value={desc} onChange={(e) => setDesc(e.target.value)} placeholder="e.g. Apply to the 3 Radar jobs I shared and log them" /></div>
-    <div className="seg" role="radiogroup" aria-label="Due">
-      <button type="button" role="radio" aria-checked={mode === "meeting"} className={mode === "meeting" ? "on" : ""} onClick={() => setMode("meeting")}>By next meeting</button>
-      <button type="button" role="radio" aria-checked={mode === "date"} className={mode === "date" ? "on" : ""} onClick={() => setMode("date")}>By a date</button>
+    <h2 className="h2">{t("Send a task")}</h2>
+    <div><label className="lb" htmlFor="tk">{t("What should {first} do?", { first })}</label>
+      <textarea className="in" id="tk" style={{ minHeight: 80 }} value={desc} onChange={(e) => setDesc(e.target.value)} placeholder={t("e.g. Apply to the 3 Radar jobs I shared and log them")} /></div>
+    <div className="seg" role="radiogroup" aria-label={t("Due")}>
+      <button type="button" role="radio" aria-checked={mode === "meeting"} className={mode === "meeting" ? "on" : ""} onClick={() => setMode("meeting")}>{t("By next meeting")}</button>
+      <button type="button" role="radio" aria-checked={mode === "date"} className={mode === "date" ? "on" : ""} onClick={() => setMode("date")}>{t("By a date")}</button>
     </div>
-    {mode === "date" && <div><label className="lb" htmlFor="tkd">Due date</label><input className="in" id="tkd" type="date" min={todayISO()} value={due} onChange={(e) => setDue(e.target.value)} /></div>}
-    <div className="cap">Done on time: +15. Still pending at the next 1:1: −15. {first} gets it by email right away.</div>
+    {mode === "date" && <div><label className="lb" htmlFor="tkd">{t("Due date")}</label><input className="in" id="tkd" type="date" min={todayISO()} value={due} onChange={(e) => setDue(e.target.value)} /></div>}
+    <div className="cap">{t("Done on time: +15. Still pending at the next 1:1: −15.")} {t("{first} gets it by email right away.", { first })}</div>
     <ErrorBox error={err} />
-    <button className="btn bp" style={{ alignSelf: "flex-start" }} disabled={busy || desc.trim().length < 3 || (mode === "date" && !due)}>{busy ? "Sending…" : "Send task"}</button>
+    <button className="btn bp" style={{ alignSelf: "flex-start" }} disabled={busy || desc.trim().length < 3 || (mode === "date" && !due)}>{busy ? t("Sending…") : t("Send task")}</button>
   </form>;
 }
 
 const fmtVal = (v: unknown): string => {
   if (v === null || v === undefined) return "—";
   if (Array.isArray(v)) return v.map(fmtVal).join(", ");
-  if (typeof v === "boolean") return v ? "Yes" : "No";
-  if (typeof v === "number") return v > 0 && v <= 1 && !Number.isInteger(v) ? `${Math.round(v * 100)}%` : v.toLocaleString("en-US");
+  if (typeof v === "boolean") return v ? t("Yes") : "No";
+  if (typeof v === "number") return v > 0 && v <= 1 && !Number.isInteger(v) ? `${Math.round(v * 100)}%` : v.toLocaleString(locale());
   const s = String(v);
   return /^\d{4}-\d{2}-\d{2}/.test(s) ? fmtDate(s, { month: "short", day: "numeric", year: "numeric" }) : s;
 };
@@ -474,16 +475,16 @@ const fmtVal = (v: unknown): string => {
 function FromNotion({ studentId }: { studentId: string }) {
   const n = useApi<NotionSnap>(`/advisor/students/${studentId}/notion`);
   if (!n.data || !n.data.connected) return null;
-  const groups: [string, Record<string, unknown>][] = [["Career & Job Guarantee", n.data.career], ["Academic", n.data.academic]];
-  if (n.data.show_billing) groups.push(["Billing (admins only)", n.data.billing]);
+  const groups: [string, Record<string, unknown>][] = [[t("Career & Job Guarantee"), n.data.career], [t("Academic"), n.data.academic]];
+  if (n.data.show_billing) groups.push([t("Billing (admins only)"), n.data.billing]);
   return <section className="card stack" style={{ gap: 14 }}>
-    <div className="between"><h2 className="h2">From <em>Notion</em></h2>
-      <span className="cap">{n.data.synced_at ? `Synced ${relTime(n.data.synced_at)}` : ""}{n.data.notion_url && <> · <a href={n.data.notion_url} target="_blank" rel="noreferrer">Open in Notion</a></>}</span></div>
-    {n.data.payments_behind !== null && <div className={n.data.payments_behind ? "err" : "ok"}>{n.data.payments_behind ? "Payments are behind. Missed payments can cancel the Job Guarantee." : "Payments are up to date."}</div>}
+    <div className="between"><h2 className="h2">{t("From")} <em>{t("Notion")}</em></h2>
+      <span className="cap">{n.data.synced_at ? t("Synced {v0}", { v0: relTime(n.data.synced_at) }) : ""}{n.data.notion_url && <> · <a href={n.data.notion_url} target="_blank" rel="noreferrer">{t("Open in Notion")}</a></>}</span></div>
+    {n.data.payments_behind !== null && <div className={n.data.payments_behind ? "err" : "ok"}>{n.data.payments_behind ? t("Payments are behind. Missed payments can cancel the Job Guarantee.") : t("Payments are up to date.")}</div>}
     <div className="grid" style={{ gap: 16, gridTemplateColumns: "repeat(auto-fit,minmax(280px,1fr))" }}>
       {groups.map(([title, vals]) => <div key={title} className="stack" style={{ gap: 6 }}>
         <div className="eyebrow">{title}</div>
-        {Object.keys(vals).length === 0 ? <div className="cap">Nothing filled in Notion yet.</div> :
+        {Object.keys(vals).length === 0 ? <div className="cap">{t("Nothing filled in Notion yet.")}</div> :
           Object.entries(vals).map(([k, v]) => <div key={k} style={{ display: "flex", justifyContent: "space-between", gap: 12, fontSize: 14, padding: "6px 0", borderBottom: "1px solid var(--line-soft)" }}>
             <span className="cap" style={{ fontSize: 14 }}>{k}</span><strong style={{ textAlign: "right" }}>{fmtVal(v)}</strong></div>)}
       </div>)}

@@ -3,6 +3,8 @@ import ReactDOM from "react-dom/client";
 import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
 import "./styles.css";
 import { AuthProvider, useAuth } from "./lib/auth";
+import { LangProvider } from "./lib/i18n";
+import { api, getToken } from "./lib/api";
 import { ToastProvider, Spinner } from "./components/ui";
 import { StaffLayout, StudentLayout } from "./components/Layout";
 import Login from "./pages/Login";
@@ -18,6 +20,7 @@ import Onboarding from "./pages/Onboarding";
 import { StaffResume, StaffResumes } from "./pages/StaffResumes";
 import { TemplateEditor, TemplateLibrary } from "./pages/ResumeTemplates";
 import JobRadar from "./pages/JobRadar";
+import JobsForYou from "./pages/JobsForYou";
 import SetPassword from "./pages/SetPassword";
 import { AdminAudit, AdminPauses, AdminPeople, AdminRules } from "./pages/Admin";
 
@@ -31,6 +34,11 @@ function Guard({ staff, children }: { staff?: boolean; children: React.ReactNode
   return <>{children}</>;
 }
 
+function WithLang({ children }: { children: React.ReactNode }) {
+  const { user } = useAuth();
+  return <LangProvider userLang={user?.language} userChose={user?.language_set} onSave={(l) => (getToken() ? api.put("/auth/language", { language: l }) : undefined)}>{children}</LangProvider>;
+}
+
 function App() {
   return (
     <Routes>
@@ -39,6 +47,7 @@ function App() {
       <Route element={<Guard><StudentLayout /></Guard>}>
         <Route path="/" element={<Dashboard />} />
         <Route path="/tracker" element={<Tracker />} />
+        <Route path="/jobs" element={<JobsForYou />} />
         <Route path="/resume" element={<Resume />} />
         <Route path="/points" element={<Points />} />
         <Route path="/advisor" element={<AdvisorHub />} />
@@ -65,6 +74,6 @@ function App() {
 
 ReactDOM.createRoot(document.getElementById("root")!).render(
   <React.StrictMode>
-    <BrowserRouter><AuthProvider><ToastProvider><App /></ToastProvider></AuthProvider></BrowserRouter>
+    <BrowserRouter><AuthProvider><WithLang><ToastProvider><App /></ToastProvider></WithLang></AuthProvider></BrowserRouter>
   </React.StrictMode>,
 );

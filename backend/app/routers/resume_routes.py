@@ -7,6 +7,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
+from ..i18n import Cat, D, M, lang_of
 from ..auth import current_user, require_staff, student_for
 from ..config import settings
 from ..db import get_db
@@ -29,7 +30,7 @@ def _profile(db: Session, st: Student, create: bool = True) -> ResumeProfile | N
     if not p and create:
         data = R.normalize({})
         data["basics"]["name"], data["basics"]["email"] = st.user.name, st.user.email
-        p = ResumeProfile(student_id=st.id, data=data, template="classic", status="draft")
+        p = ResumeProfile(student_id=st.id, data=data, template="classic", status="draft", lang=lang_of(st.user))
         db.add(p)
         db.flush()
     return p
@@ -38,7 +39,7 @@ def _profile(db: Session, st: Student, create: bool = True) -> ResumeProfile | N
 def _snap_dict(s: ResumeSnapshot, full: bool = False) -> dict:
     d = {"id": s.id, "kind": s.kind, "label": s.label, "template": s.template, "job_title": s.job_title,
          "company": s.company, "application_id": s.application_id, "job_id": s.job_id, "created_at": iso(s.created_at),
-         "downloads": s.downloads, "match_score": (s.analysis or {}).get("match_score")}
+         "downloads": s.downloads, "match_score": (s.analysis or {}).get("match_score"), "lang": s.lang}
     if full:
         d["data"], d["analysis"] = s.data, s.analysis
     return d
@@ -77,7 +78,7 @@ def get_resume(student_id: str, user: User = Depends(current_user), db: Session 
     authors = {u.id: u.name for u in db.scalars(select(User).where(User.id.in_({c.author_id for c in comments}))).all()} if comments else {}
     return {
         "student": {"id": st.id, "name": st.user.name},
-        "data": p.data, "template": p.template, "templates": R.TEMPLATES, "status": p.status,
+        "data": p.data, "template": p.template, "templates": R.TEMPLATES, "status": p.status, "lang": p.lang,
         "submitted_at": iso(p.submitted_at), "approved_at": iso(p.approved_at), "updated_at": iso(p.updated_at),
         "can_download": user.role != "student" or p.approved_at is not None,
         "is_empty": R.is_empty(p.data),
@@ -89,9 +90,13 @@ def get_resume(student_id: str, user: User = Depends(current_user), db: Session 
     }
 
 
+LANG_RE = "^(en|es)$"
+
+
 class SaveIn(BaseModel):
     data: dict
     template: str = Field("classic", pattern="^(classic|modern|technical)$")
+    lang: str | None = Field(default=None, pattern=LANG_RE)
 
 
 @router.put("/students/{student_id}/resume")
@@ -99,6 +104,8 @@ def save_resume(student_id: str, body: SaveIn, user: User = Depends(current_user
     st = student_for(db, user, student_id)
     p = _profile(db, st)
     p.data, p.template, p.updated_by = R.normalize(body.data), body.template, user.id
+    if body.lang:
+        p.lang = body.lang
     if user.role == "student" and p.status in ("approved", "changes_requested"):
         p.status = "draft"  # downloads stay unlocked once the first version was approved
     db.commit()
@@ -106,8 +113,8 @@ def save_resume(student_id: str, body: SaveIn, user: User = Depends(current_user
 
 
 @router.post("/students/{student_id}/resume/upload")
-async def upload_cv(student_id: str, file: UploadFile = File(...), user: User = Depends(current_user),
-                    db: Session = Depends(get_db)):
+async def upload_cv(student_id: str, file: UploadFile = File(...), lang: str | None = None,
+                    user: User = Depends(current_user), db: Session = Depends(get_db)):
     """Read an uploaded CV and return the text plus the copy-paste prompt that turns it into the master resume."""
     st = student_for(db, user, student_id)
     raw = await file.read()
@@ -116,7 +123,7 @@ async def upload_cv(student_id: str, file: UploadFile = File(...), user: User = 
     text = extract_text(file.filename, raw)
     if len(text) < 150:
         raise HTTPException(422, "We could only read a few words from that file. Try the .docx version, or paste the text.")
-    return {"text": text[:20000], "prompt": R.import_prompt(text)}
+    return {"text": text[:20000], "prompt": R.import_prompt(text, (lang if lang in ("en", "es") else None) or _profile(db, st).lang)}
 
 
 class AnswerIn(BaseModel):
@@ -136,7 +143,7 @@ def import_answer(student_id: str, body: AnswerIn, user: User = Depends(current_
 def _replace_master(db: Session, st: Student, user: User, data: dict, label: str) -> dict:
     p = _profile(db, st)
     if not R.is_empty(p.data):
-        db.add(ResumeSnapshot(student_id=st.id, kind="master", label=f"Before: {label}", data=p.data,
+        db.add(ResumeSnapshot(student_id=st.id, kind="master", label=f"Before: {label}", data=p.data, lang=p.lang,
                               template=p.template, created_by=user.id))
     p.data, p.updated_by = data, user.id
     if user.role == "student" and p.status == "approved":
@@ -177,7 +184,7 @@ def tailor_prompt(student_id: str, body: TailorIn, user: User = Depends(current_
         raise HTTPException(422, "Build your master resume first (upload your CV or fill it in).")
     text, title, company = _job_context(db, st, body)
     db.commit()
-    return {"prompt": R.tailor_prompt(p.data, text, title, company), "job_title": title, "company": company}
+    return {"prompt": R.tailor_prompt(p.data, text, title, company, p.lang), "job_title": title, "company": company}
 
 
 class ReviewIn(AnswerIn):
@@ -214,6 +221,7 @@ class VersionIn(BaseModel):
     application_id: str | None = None
     job_id: str | None = None
     analysis: dict | None = None
+    lang: str | None = Field(default=None, pattern="^(en|es)$")
 
 
 @router.post("/students/{student_id}/resume/versions", status_code=201)
@@ -227,6 +235,7 @@ def save_version(student_id: str, body: VersionIn, user: User = Depends(current_
         if not a or a.student_id != st.id:
             body.application_id = None
     s = ResumeSnapshot(student_id=st.id, kind=body.kind, label=body.label.strip(), data=R.normalize(body.data),
+                       lang=body.lang or _profile(db, st).lang,
                        template=body.template, job_title=body.job_title, company=body.company,
                        application_id=body.application_id, job_id=body.job_id if body.job_id and db.get(Job, body.job_id) else None,
                        analysis=body.analysis, created_by=user.id)
@@ -248,6 +257,7 @@ class VersionPatch(BaseModel):
     data: dict | None = None
     label: str | None = Field(default=None, min_length=2, max_length=255)
     template: str | None = Field(default=None, pattern="^(classic|modern|technical)$")
+    lang: str | None = Field(default=None, pattern="^(en|es)$")
 
 
 @router.put("/students/{student_id}/resume/versions/{vid}")
@@ -266,6 +276,8 @@ def update_version(student_id: str, vid: str, body: VersionPatch, user: User = D
         s.label = body.label.strip()
     if body.template:
         s.template = body.template
+    if body.lang:
+        s.lang = body.lang
     db.commit()
     return _snap_dict(s, full=True)
 
@@ -278,19 +290,19 @@ def download_docx(student_id: str, version: str | None = None, template: str | N
     if user.role == "student" and not p.approved_at:
         raise HTTPException(403, "Your advisor needs to approve your first resume before you can download it. "
                                  "Use “Send for review”.")
-    data, tpl, label = p.data, template or p.template, "master"
+    data, tpl, label, lang = p.data, template or p.template, "master", p.lang
     if version:
         s = db.get(ResumeSnapshot, version)
         if not s or s.student_id != st.id:
             raise HTTPException(404, "Version not found")
-        data, tpl, label = s.data, template or s.template, s.company or s.label
+        data, tpl, label, lang = s.data, template or s.template, s.company or s.label, s.lang
         if user.role == "student" and s.kind == "tailored" and not s.downloads:
             _award_download(db, st, s)
         s.downloads = (s.downloads or 0) + 1
     if tpl not in R.TEMPLATES:
         tpl = "classic"
     db.commit()
-    return Response(R.build_docx(data, tpl),
+    return Response(R.build_docx(data, tpl, lang),
                     media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
                     headers={"Content-Disposition": f'attachment; filename="{R.filename(data, label)}"'})
 
@@ -305,7 +317,7 @@ def _award_download(db: Session, st: Student, s: ResumeSnapshot) -> None:
     n = db.scalar(select(func.count(PointsEvent.id)).where(
         PointsEvent.student_id == st.id, PointsEvent.event_type == "resume", PointsEvent.created_at >= start)) or 0
     if n < r.cap_resume_downloads_week:
-        engine.award(db, st, "resume", r.pts_resume_download, f"Tailored resume · {s.company or s.label}",
+        engine.award(db, st, "resume", r.pts_resume_download, M("Tailored resume · {what}", what=s.company or s.label),
                      source="manual", source_id=s.id, key=f"resume:{s.id}")
 
 
@@ -316,8 +328,8 @@ def submit_for_review(student_id: str, user: User = Depends(current_user), db: S
     if R.is_empty(p.data):
         raise HTTPException(422, "Fill in your resume before sending it for review.")
     p.status, p.submitted_at = "in_review", now_utc()
-    alert_advisor(db, st, f"{st.user.name} sent their resume for review",
-                  "Open Resume Studio to review, comment and approve it.", link=f"/staff/resumes/{st.id}")
+    alert_advisor(db, st, M("{name} sent their resume for review", name=st.user.name),
+                  M("Open Resume Studio to review, comment and approve it."), link=f"/staff/resumes/{st.id}")
     db.commit()
     return {"status": p.status}
 
@@ -333,14 +345,13 @@ def approve(student_id: str, body: DecisionIn, user: User = Depends(require_staf
     first = p.approved_at is None
     p.status, p.approved_by = "approved", user.id
     p.approved_at = p.approved_at or now_utc()
-    db.add(ResumeSnapshot(student_id=st.id, kind="master", label="Approved master resume", data=p.data,
+    db.add(ResumeSnapshot(student_id=st.id, kind="master", label="Approved master resume", data=p.data, lang=p.lang,
                           template=p.template, created_by=user.id))
     engine.complete_profile_task(db, st, "cv", user)  # Stage 1 "Resume ready" + profile points
     db.add(AuditLog(actor_id=user.id, student_id=st.id, action="resume_approved", detail=body.note or "Resume approved"))
     notify_student(db, st, type="success", category="advisor", pref_key="session_notes",
-                   title="Your resume is approved" + (": downloads are unlocked" if first else ""),
-                   body=(body.note.strip() + "\n\n" if body.note else "") +
-                        "Tailor it to each job in the Resume Builder and download any version you need.", link="/resume")
+                   title=M("Your resume is approved: downloads are unlocked") if first else M("Your resume is approved"),
+                   body=Cat((body.note or "").strip(), M("Tailor it to each job in the Resume Builder and download any version you need.")), link="/resume")
     db.commit()
     return {"status": p.status, "approved_at": iso(p.approved_at)}
 
@@ -353,8 +364,8 @@ def request_changes(student_id: str, body: DecisionIn, user: User = Depends(requ
     if body.note:
         db.add(ResumeComment(student_id=st.id, author_id=user.id, section=None, body=body.note.strip()))
     notify_student(db, st, type="info", category="advisor", pref_key="session_notes",
-                   title=f"{user.name.split()[0]} asked for changes to your resume",
-                   body=(body.note or "Open the Resume Builder to see the comments."), link="/resume")
+                   title=M("{name} asked for changes to your resume", name=user.name.split()[0]),
+                   body=(body.note or M("Open the Resume Builder to see the comments.")), link="/resume")
     db.commit()
     return {"status": p.status}
 
@@ -404,13 +415,14 @@ def _check_budget(db: Session, user: User):
 
 class AiImportIn(BaseModel):
     text: str = Field(min_length=150, max_length=40000)
+    lang: str | None = Field(default=None, pattern="^(en|es)$")
 
 
 @router.post("/advisor/students/{student_id}/resume/ai/import")
 def ai_import(student_id: str, body: AiImportIn, user: User = Depends(require_staff), db: Session = Depends(get_db)):
     st = student_for(db, user, student_id)
     _check_budget(db, user)
-    text, tin, tout = R.run_claude(R.import_prompt(body.text))
+    text, tin, tout = R.run_claude(R.import_prompt(body.text, body.lang or _profile(db, st).lang))
     _charge(db, user, st, "resume_import", tin, tout)
     data = R.normalize(R.parse_answer(text))
     if R.is_empty(data):
@@ -427,7 +439,7 @@ def ai_tailor(student_id: str, body: TailorIn, user: User = Depends(require_staf
         raise HTTPException(422, "Build the master resume first.")
     _check_budget(db, user)
     job_text, title, company = _job_context(db, st, body)
-    text, tin, tout = R.run_claude(R.tailor_prompt(p.data, job_text, title, company))
+    text, tin, tout = R.run_claude(R.tailor_prompt(p.data, job_text, title, company, p.lang))
     _charge(db, user, st, "resume_tailor", tin, tout)
     db.commit()
     return {**R.review_tailoring(R.parse_answer(text), p.data), "job_title": title, "company": company}
@@ -468,7 +480,7 @@ def ai_usage(user: User = Depends(require_staff), db: Session = Depends(get_db))
 # ── template library: example resumes staff curate; students start from them ──
 
 def _tpl_dict(t: ResumeTemplate, full: bool = True) -> dict:
-    d = {"id": t.id, "name": t.name, "program": t.program, "description": t.description, "layout": t.layout,
+    d = {"id": t.id, "name": t.name, "program": t.program, "description": t.description, "layout": t.layout, "lang": t.lang,
          "active": t.active, "position": t.position, "updated_at": iso(t.updated_at)}
     if full:
         d["data"] = t.data
@@ -490,6 +502,7 @@ class TemplateIn(BaseModel):
     data: dict
     layout: str = Field("classic", pattern="^(classic|modern|technical)$")
     active: bool = True
+    lang: str = Field("en", pattern="^(en|es)$")
 
 
 def _clean_example(data: dict) -> dict:
@@ -506,7 +519,7 @@ def create_template(body: TemplateIn, user: User = Depends(require_staff), db: S
     last = db.scalar(select(func.max(ResumeTemplate.position))) or 0
     t = ResumeTemplate(name=body.name.strip(), program=(body.program or "").strip() or None,
                        description=(body.description or "").strip() or None, data=_clean_example(body.data),
-                       layout=body.layout, active=body.active, position=last + 1, created_by=user.id)
+                       layout=body.layout, active=body.active, position=last + 1, created_by=user.id, lang=body.lang)
     db.add(t)
     db.add(AuditLog(actor_id=user.id, action="resume_template_created", detail=t.name))
     db.commit()
@@ -519,7 +532,7 @@ def update_template(tid: str, body: TemplateIn, user: User = Depends(require_sta
     if not t:
         raise HTTPException(404, "Template not found")
     t.name, t.program, t.description = body.name.strip(), (body.program or "").strip() or None, (body.description or "").strip() or None
-    t.data, t.layout, t.active = _clean_example(body.data), body.layout, body.active
+    t.data, t.layout, t.active, t.lang = _clean_example(body.data), body.layout, body.active, body.lang
     db.commit()
     return _tpl_dict(t)
 
@@ -552,7 +565,7 @@ def delete_template(tid: str, user: User = Depends(require_staff), db: Session =
 
 
 @router.post("/advisor/resume-templates/upload")
-async def template_upload(file: UploadFile = File(...), user: User = Depends(require_staff)):
+async def template_upload(file: UploadFile = File(...), lang: str | None = None, user: User = Depends(require_staff)):
     """Read an example CV: returns the text and the copy-paste prompt that turns it into a template."""
     raw = await file.read()
     if len(raw) > 5 * 1024 * 1024:
@@ -560,7 +573,7 @@ async def template_upload(file: UploadFile = File(...), user: User = Depends(req
     text = extract_text(file.filename, raw)
     if len(text) < 150:
         raise HTTPException(422, "We could only read a few words from that file. Try the .docx version.")
-    return {"text": text[:20000], "prompt": R.import_prompt(text)}
+    return {"text": text[:20000], "prompt": R.import_prompt(text, lang if lang in ("en", "es") else None)}
 
 
 @router.post("/advisor/resume-templates/parse")
@@ -575,7 +588,7 @@ def template_parse(body: AnswerIn, user: User = Depends(require_staff)):
 @router.post("/advisor/resume-templates/ai-import")
 def template_ai_import(body: AiImportIn, user: User = Depends(require_staff), db: Session = Depends(get_db)):
     _check_budget(db, user)
-    text, tin, tout = R.run_claude(R.import_prompt(body.text))
+    text, tin, tout = R.run_claude(R.import_prompt(body.text, body.lang))
     _charge(db, user, None, "template_import", tin, tout)
     db.commit()
     data = R.normalize(R.parse_answer(text))
