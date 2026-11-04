@@ -7,11 +7,12 @@ import { t } from "../lib/i18n";
 import { useApi } from "../lib/useApi";
 import { ErrorBox, Modal, Spinner, useToast } from "../components/ui";
 import { IBriefcase, ICheck } from "../components/Icons";
+import { ShareDetail, type ShareRec } from "../components/JobShares";
+import { appStatus } from "../lib/format";
 
 type Job = { id: string; title: string; company: string | null; location: string | null; work_mode: string | null; url: string | null;
   posted_at: string | null; salary_min: number | null; salary_max: number | null; description: string | null; is_partner: boolean };
-type Share = { id: string; status: "new" | "interested" | "applied" | "not_a_fit"; note: string | null; response_note: string | null;
-  shared_at: string; new: boolean; shared_by: string | null; application_id: string | null; job: Job };
+type Share = ShareRec;
 
 const STATUS: Record<Share["status"], [string, string]> = {
   new: [t("New"), "pa"], interested: [t("Interested"), "pb"], applied: [t("Applied"), "pn"], not_a_fit: [t("Not a fit"), "pg"],
@@ -23,6 +24,7 @@ export default function JobsForYou() {
   const toast = useToast();
   const [f, setF] = useState<"open" | "applied" | "not_a_fit" | "all">("open");
   const [passing, setPassing] = useState<Share | null>(null);
+  const [open, setOpen] = useState<string | null>(null);
   const [err, setErr] = useState<unknown>(null);
   useEffect(() => { if (r.data) window.dispatchEvent(new Event("gf-jobs-seen")); }, [r.data]);
 
@@ -66,6 +68,7 @@ export default function JobsForYou() {
                     <strong style={{ fontSize: 17 }}>{j.title}</strong>
                     <span className={`pill ${STATUS[s.status][1]}`}>{t(STATUS[s.status][0])}</span>
                     {j.is_partner && <span className="pill pn">{t("Hiring partner")}</span>}
+                    {s.application && s.application.status !== "applied" && <span className={`pill ${appStatus[s.application.status]?.[1] || "pg"}`}>{t(appStatus[s.application.status]?.[0] || s.application.status)}</span>}
                   </div>
                   <div className="cap">{[j.company, j.location, j.work_mode].filter(Boolean).join(" · ")}</div>
                   <div className="cap" style={{ fontSize: 12, marginTop: 2 }}>
@@ -85,10 +88,12 @@ export default function JobsForYou() {
                 {s.status !== "not_a_fit" && s.status !== "applied" && <button className="btn bg sm" onClick={() => setPassing(s)}>{t("Not a fit")}</button>}
                 {s.status === "not_a_fit" && <button className="btn bg sm" onClick={() => respond(s, "interested")}>{t("Changed my mind")}</button>}
                 <Link className="btn bg sm" to="/resume">{t("Tailor my resume for it")}</Link>
+                <button className="btn bg sm" onClick={() => setOpen(s.id)}>{s.status === "applied" ? t("Update progress & history") : t("Details & history")}</button>
               </div>
             </article>); })}
         </div>
       </div>
+      {open && <ShareDetail shareId={open} onClose={() => setOpen(null)} onChanged={r.reload} />}
       {passing && <NotAFit share={passing} onClose={() => setPassing(null)} onSave={(n) => { respond(passing, "not_a_fit", n); setPassing(null); }} />}
     </>);
 }

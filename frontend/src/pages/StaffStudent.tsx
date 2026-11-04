@@ -8,6 +8,7 @@ import { useAuth } from "../lib/auth";
 import { ErrorBox, Modal, Spinner, StatusPill, useToast } from "../components/ui";
 import { IBack } from "../components/Icons";
 import { JourneyTracker } from "../components/Journey";
+import { StudentShares } from "./JobTracking";
 import { locale, t } from "../lib/i18n";
 
 type Preview = { effects: { type: string; delta: number; title: string }[]; balance_before: number; balance_after: number;
@@ -100,6 +101,7 @@ export default function StaffStudent() {
           </div>
         </div>
 
+        <StudentShares studentId={st.id} first={st.name.split(" ")[0]} />
         <FromNotion studentId={st.id} />
         {d.status === "suspended" && <Reinstate studentId={st.id} since={st.suspended_at} onDone={(m) => { toast(m); reload(); }} />}
         <div className="row" style={{ alignItems: "flex-start" }}>

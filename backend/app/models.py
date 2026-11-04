@@ -417,3 +417,15 @@ class JobShare(TimestampMixin, Base):
     application_id: Mapped[str | None] = mapped_column(ForeignKey("applications.id"))
 
     job: Mapped["Job"] = relationship()
+
+
+class JobShareEvent(TimestampMixin, Base):
+    """Timeline of a shared job: shared, seen, interested, applied, not a fit, interview stages, advisor notes."""
+    __tablename__ = "job_share_events"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    share_id: Mapped[str] = mapped_column(ForeignKey("job_shares.id", ondelete="CASCADE"), index=True)
+    # shared | seen | interested | applied | not_a_fit | reopened | stage | note
+    kind: Mapped[str] = mapped_column(String(20))
+    actor_id: Mapped[str | None] = mapped_column(ForeignKey("users.id"))
+    detail: Mapped[str | None] = mapped_column(Text)
+    data: Mapped[dict | None] = mapped_column(JSON)

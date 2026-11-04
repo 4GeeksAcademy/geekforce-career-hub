@@ -213,4 +213,14 @@ ES: dict[str, str] = {
     "{name} requested a {days}-day pause ({reason}).": "{name} pidió una pausa de {days} días ({reason}).",
     "{name} has been inactive for {d} days.": "{name} lleva {d} días inactivo.",
     " Deduction fires on day {n}.": " El descuento se aplica el día {n}.",
+    # job tracking
+    "{name} added a note about {title}": "{name} agregó una nota sobre {title}",
+    "{name}: {title} moved to {stage}": "{name}: {title} pasó a {stage}",
+    "Applied": "Postulado",
+    "Phone screen": "Llamada inicial",
+    "Technical": "Técnica",
+    "Final round": "Ronda final",
+    "Offer": "Oferta",
+    "Rejected": "Rechazado",
+    "Withdrawn": "Retirado",
 }

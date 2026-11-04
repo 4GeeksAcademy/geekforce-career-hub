@@ -13,7 +13,7 @@ from ..auth import current_user, student_for
 from ..db import get_db
 from ..models import (
     ActivityLog, Application, HomeworkTask, Notification, NotificationPreference, PauseRequest, PointsEvent,
-    ProfileTask, ResumeVersion, Session as SessionModel, User,
+    ProfileTask, ResumeVersion, Session as SessionModel, Student, User,
 )
 from ..notify import LOCKED, OPTIONAL
 from ..rules import get_rules
@@ -23,6 +23,9 @@ from ..serializers import (
 )
 from ..services import resume as resume_svc
 from ..timeutil import local_today, week_bounds_utc, week_start
+
+APP_STAGE_LABEL = {"applied": "Applied", "phone_screen": "Phone screen", "technical": "Technical", "final": "Final round",
+                   "offer": "Offer", "rejected": "Rejected", "withdrawn": "Withdrawn"}
 
 router = APIRouter(tags=["student"])
 
@@ -114,8 +117,22 @@ def update_application(app_id: str, body: ApplicationPatch, user: User = Depends
     data = body.model_dump(exclude_unset=True)
     if "status" in data and data["status"] not in APP_STATUSES:
         raise HTTPException(422, "Unknown status")
+    before = app.status
     for k, v in data.items():
         setattr(app, k, v)
+    if "status" in data and data["status"] != before:
+        from ..models import JobShare
+        from .jobs_routes import log_event
+        share = db.scalar(select(JobShare).where(JobShare.application_id == app.id))
+        if share:
+            log_event(db, share, "stage", user, None, {"from": before, "to": data["status"]})
+            st = db.get(Student, app.student_id)
+            if user.role == "student" and st.advisor and data["status"] in ("phone_screen", "technical", "final", "offer", "rejected"):
+                from ..notify import notify_user
+                notify_user(db, st.advisor, type="info", category="advisor_alert", pref_key="guarantee", email=False,
+                            title=M("{name}: {title} moved to {stage}", name=st.user.name, title=share.job.title,
+                                    stage=M(APP_STAGE_LABEL.get(data["status"], data["status"]))),
+                            body="", link=f"/staff/students/{st.id}")
     db.commit()
     return application_dict(app)
 

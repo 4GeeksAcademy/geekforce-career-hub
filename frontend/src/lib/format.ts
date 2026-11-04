@@ -35,7 +35,7 @@ export const appStatus: Record<string, [string, string]> = {
   final: [t("Final round"), "pa"], offer: [t("Offer"), "pn"], rejected: [t("Rejected"), "pr"], withdrawn: [t("Withdrawn"), "pg"],
 };
 export const sourceLabel = (s: string) =>
-  s === "manual" ? t("Manual") : s === "notion_import" ? t("Imported from Notion") : "Extension · " + s.replace("extension_", "").replace(/^./, (c) => c.toUpperCase());
+  s === "manual" ? t("Manual") : s === "notion_import" ? t("Imported from Notion") : s === "job_radar" ? t("Shared by your advisor") : "Extension · " + s.replace("extension_", "").replace(/^./, (c) => c.toUpperCase());
 export const sessionType: Record<string, string> = tmap({
   one_on_one: "1:1 session", group_workshop: t("GeekForce session"), mock_interview: t("Mock interview"),
 });

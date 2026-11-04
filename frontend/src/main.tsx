@@ -21,6 +21,7 @@ import { StaffResume, StaffResumes } from "./pages/StaffResumes";
 import { TemplateEditor, TemplateLibrary } from "./pages/ResumeTemplates";
 import JobRadar from "./pages/JobRadar";
 import JobsForYou from "./pages/JobsForYou";
+import JobTracking from "./pages/JobTracking";
 import SetPassword from "./pages/SetPassword";
 import { AdminAudit, AdminPauses, AdminPeople, AdminRules } from "./pages/Admin";
 
@@ -59,6 +60,7 @@ function App() {
         <Route path="/staff/notifications" element={<Notifications staff />} />
         <Route path="/staff/onboarding" element={<Onboarding />} />
         <Route path="/staff/jobs" element={<JobRadar />} />
+        <Route path="/staff/jobs/shared" element={<JobTracking />} />
         <Route path="/staff/resumes" element={<StaffResumes />} />
         <Route path="/staff/resumes/templates" element={<TemplateLibrary />} />
         <Route path="/staff/resumes/templates/:tid" element={<TemplateEditor />} />

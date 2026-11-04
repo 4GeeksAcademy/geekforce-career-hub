@@ -90,3 +90,29 @@ def test_share_message_in_spanish_for_latam_student(client, db, people):
     assert me["language"] == "es"
     client.put("/api/v1/auth/language", headers=auth(u2), json={"language": "en"})
     assert client.get("/api/v1/auth/me", headers=auth(u2)).json()["language"] == "en"
+
+
+def test_share_timeline_and_tracking(client, db, people):
+    job = _job(db)
+    h, hs = auth(people["advisor"]), auth(people["student_user"])
+    client.post(f"/api/v1/advisor/jobs/{job.id}/share", headers=h, json={"student_ids": [people["student"].id], "note": "Apply by Friday"})
+    sid = client.get("/api/v1/students/me/jobs", headers=hs).json()[0]["id"]          # seen
+    client.patch(f"/api/v1/students/me/jobs/{sid}", headers=hs, json={"status": "interested"})
+    a = client.patch(f"/api/v1/students/me/jobs/{sid}", headers=hs, json={"status": "applied", "note": "Applied on their site"}).json()
+    app_id = a["application"]["id"]
+    assert client.patch(f"/api/v1/applications/{app_id}", headers=hs, json={"status": "phone_screen"}).status_code == 200
+    client.post(f"/api/v1/advisor/job-shares/{sid}/notes", headers=h, json={"body": "Called the recruiter, she liked the profile"})
+    d = client.get(f"/api/v1/job-shares/{sid}", headers=h).json()
+    kinds = [e["kind"] for e in d["timeline"]]
+    assert kinds == ["shared", "seen", "interested", "applied", "logged", "stage", "note"], kinds
+    assert d["application"]["status"] == "phone_screen" and d["timeline"][0]["detail"] == "Apply by Friday"
+    assert d["timeline"][5]["data"] == {"from": "applied", "to": "phone_screen"}
+    # the student doesn't see the advisor's private note
+    mine = client.get(f"/api/v1/job-shares/{sid}", headers=hs).json()
+    assert "note" not in [e["kind"] for e in mine["timeline"]]
+    tr = client.get("/api/v1/advisor/job-shares", headers=h).json()
+    assert tr["total"] == 1 and tr["counts"] == {"applied": 1} and tr["in_process"] == 1
+    assert tr["items"][0]["student"]["name"] == "Maria González" and tr["items"][0]["job"]["company"] == "Acme"
+    assert client.get("/api/v1/advisor/job-shares?q=acme", headers=h).json()["total"] == 1
+    assert client.get("/api/v1/advisor/job-shares?status=not_a_fit", headers=h).json()["total"] == 0
+    assert db.scalar(select(Notification).where(Notification.title.like("%moved to Phone screen%")))

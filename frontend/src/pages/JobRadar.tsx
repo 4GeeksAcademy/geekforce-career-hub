@@ -1,5 +1,8 @@
 import { useEffect, useState, type FormEvent } from "react";
+import { Link } from "react-router-dom";
 import { t } from "../lib/i18n";
+import { RadarTabs } from "./JobTracking";
+import { ShareDetail } from "../components/JobShares";
 import { api } from "../lib/api";
 import { useAuth } from "../lib/auth";
 import { useApi } from "../lib/useApi";
@@ -55,6 +58,7 @@ export default function JobRadar() {
         </div>
       </header>
       <div className="content">
+        <RadarTabs on="jobs" />
         <section className="hero">
           <div style={{ flex: "1 1 360px" }}>
             <span className="chipy">{t("DAILY SWEEP · 10:00 AM ET")}</span>
@@ -130,6 +134,7 @@ function ShareJob({ job, programs, startTab, onClose, onDone }: { job: Job; prog
   const [cohortF, setCohortF] = useState("");
   const [group, setGroup] = useState({ cohort_id: "", program: job.program || "", stage: "" });
   const [preview, setPreview] = useState<{ would_share: number; already: number } | null>(null);
+  const [detail, setDetail] = useState<string | null>(null);
   const [note, setNote] = useState("");
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<unknown>(null);
@@ -212,13 +217,16 @@ function ShareJob({ job, programs, startTab, onClose, onDone }: { job: Job; prog
       {shares.data?.length === 0 && <div className="empty">{t("Not shared with anyone yet.")}</div>}
       {shares.data && shares.data.length > 0 && <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
         {Object.entries(SHARE_STATUS).map(([k, [l, c]]) => { const n = shares.data!.filter((s) => s.status === k).length; return n ? <span key={k} className={`pill ${c}`}>{t(l)} · {n}</span> : null; })}</div>}
-      {shares.data?.map((s) => <div key={s.id} className="hw">
+      {shares.data?.map((s) => <div key={s.id} className="hw" role="button" tabIndex={0} style={{ cursor: "pointer" }} onClick={() => setDetail(s.id)}
+        onKeyDown={(e) => e.key === "Enter" && setDetail(s.id)}>
         <span style={{ flex: 1, minWidth: 0 }}><strong>{s.name}</strong>
           <span className="cap" style={{ display: "block" }}>{[s.cohort, t("shared {when}", { when: relTime(s.shared_at) }), s.seen ? t("seen") : t("not opened yet")].filter(Boolean).join(" · ")}</span>
           {s.response_note && <span className="cap" style={{ display: "block", fontStyle: "italic" }}>“{s.response_note}”</span>}</span>
         <span className={`pill ${SHARE_STATUS[s.status]?.[1] || "pg"}`}>{t(SHARE_STATUS[s.status]?.[0] || s.status)}</span></div>)}
     </div>}
 
+    {tab === "shared" && shares.data && shares.data.length > 0 && <Link className="btn bg sm" style={{ alignSelf: "flex-start" }} to={`/staff/jobs/shared?job=${job.id}`} onClick={onClose}>{t("Open full tracking")}</Link>}
+    {detail && <ShareDetail shareId={detail} staff onClose={() => setDetail(null)} onChanged={shares.reload} />}
     {tab !== "shared" && <>
       <div><label className="lb" htmlFor="sn">{t("Note to the students (optional)")}</label>
         <textarea className="in" id="sn" style={{ minHeight: 70 }} value={note} onChange={(e) => setNote(e.target.value)} placeholder={t("e.g. Strong match for your React projects. Apply this week.")} /></div>
