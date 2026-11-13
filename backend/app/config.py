@@ -41,9 +41,9 @@ class Settings(BaseSettings):
     anthropic_api_key: str = ""
     anthropic_model: str = "claude-sonnet-5-5"
 
-    # Breathcode (phase 2: 4Geeks platform login + attendance)
-    breathcode_enabled: bool = False
+    # 4Geeks (Breathcode): the only way to sign in. Hosted login + GitHub OAuth live on this API.
     breathcode_api_url: str = "https://breathecode.herokuapp.com"
+    dev_password_login: bool = False  # local development only: email + password form for the demo accounts
 
     # Notion (roster sync, read-only)
     notion_token: str = ""

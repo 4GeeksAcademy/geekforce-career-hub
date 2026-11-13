@@ -132,21 +132,20 @@ export function AdminPeople() {
 }
 
 function AddPerson({ cohorts, advisors, onClose, onDone }: { cohorts: Cohort[]; advisors: UserRow[]; onClose: () => void; onDone: (m: string) => void }) {
-  const [f, setF] = useState({ name: "", email: "", role: "student", cohort_id: "", advisor_id: "", job_search_start_date: "", password: "" });
+  const [f, setF] = useState({ name: "", email: "", role: "student", cohort_id: "", advisor_id: "", job_search_start_date: "" });
   const [err, setErr] = useState<unknown>(null);
-  const [created, setCreated] = useState<{ email: string; temporary_password: string | null } | null>(null);
+  const [created, setCreated] = useState<{ email: string } | null>(null);
   const submit = async (e: FormEvent) => {
     e.preventDefault(); setErr(null);
     try {
       const body = Object.fromEntries(Object.entries(f).filter(([, v]) => v !== ""));
-      const r = await api.post<{ email: string; temporary_password: string | null }>("/admin/users", body);
+      const r = await api.post<{ email: string }>("/admin/users", body);
       setCreated(r); onDone(t("{name} added", { name: f.name }));
     } catch (e) { setErr(e); }
   };
   if (created) return <Modal title={t("Account created")} onClose={onClose}>
-    <div className="ok">{t("Share these sign-in details with the person privately. They can change the password after signing in.")}</div>
+    <div className="ok">{t("They sign in with their 4Geeks account. It must use this email:")}</div>
     <div><div className="lb">{t("Email")}</div><code>{created.email}</code></div>
-    {created.temporary_password && <div><div className="lb">{t("Temporary password")}</div><code style={{ fontSize: 16 }}>{created.temporary_password}</code></div>}
     <button className="btn bp" onClick={onClose}>{t("Done")}</button></Modal>;
   return <Modal title={t("Add person")} onClose={onClose}>
     <form className="stack" onSubmit={submit}>
@@ -161,7 +160,7 @@ function AddPerson({ cohorts, advisors, onClose, onDone }: { cohorts: Cohort[]; 
           <option value="">{t("Choose…")}</option>{advisors.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}</select></div>
         <div><label className="lb" htmlFor="as">{t("Job search start date")}</label><input className="in" id="as" type="date" value={f.job_search_start_date} onChange={(e) => setF({ ...f, job_search_start_date: e.target.value })} /></div>
       </>}
-      <div><label className="lb" htmlFor="ap">{t("Password (leave empty to generate one)")}</label><input className="in" id="ap" type="text" value={f.password} onChange={(e) => setF({ ...f, password: e.target.value })} /></div>
+      <p className="cap">{t("Use the email of their 4Geeks account. That's how they sign in.")}</p>
       <ErrorBox error={err} />
       <button className="btn bp">{t("Create account")}</button>
     </form></Modal>;

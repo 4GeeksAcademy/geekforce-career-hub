@@ -1,9 +1,38 @@
+import httpx
+import pytest
+
+from app.config import settings
 from tests.conftest import auth
 
 
-def test_login_and_dashboard(client, people):
-    r = client.post("/api/v1/auth/login", json={"email": "stu@test.io", "password": "secret123"})
+class FakeBC:
+    """Stands in for 4Geeks: GET /v1/auth/user/me answers per token."""
+    def __init__(self, users: dict):
+        self.users, self.calls = users, []
+
+    def __call__(self, url, headers=None, timeout=None):
+        self.calls.append((url, headers))
+        tok = (headers or {}).get("Authorization", "").removeprefix("Token ")
+        if tok == "down":
+            raise httpx.ConnectError("boom")
+        if tok in self.users:
+            return httpx.Response(200, json=self.users[tok])
+        return httpx.Response(401, json={"detail": "Invalid token"})
+
+
+@pytest.fixture()
+def bc(monkeypatch):
+    fake = FakeBC({"tok-maria": {"id": 501, "email": "STU@test.io", "first_name": "Maria"},
+                   "tok-stranger": {"id": 999, "email": "nobody@test.io"}})
+    monkeypatch.setattr("app.routers.auth_routes.httpx.get", fake)
+    return fake
+
+
+def test_4geeks_login_and_dashboard(client, people, bc):
+    r = client.post("/api/v1/auth/breathcode", json={"token": "tok-maria"})
     assert r.status_code == 200, r.text
+    assert bc.calls[0][0].endswith("/v1/auth/user/me") and bc.calls[0][1]["Authorization"] == "Token tok-maria"
+    assert r.json()["user"]["email"] == "stu@test.io"
     tok = r.json()["token"]
     d = client.get("/api/v1/students/me/dashboard", headers={"Authorization": f"Bearer {tok}"})
     assert d.status_code == 200, d.text
@@ -11,11 +40,27 @@ def test_login_and_dashboard(client, people):
     assert body["points"] == 80 and body["status"] == "secured"
     assert body["week"]["target"] == 15
     assert len(body["conditions"]) == 7
+    # first sign-in links the 4Geeks id, so a later email change on 4Geeks still finds the same person
+    bc.users["tok-maria"] = {"id": 501, "email": "maria.new@4geeks.com"}
+    assert client.post("/api/v1/auth/breathcode", json={"token": "tok-maria"}).json()["user"]["email"] == "stu@test.io"
 
 
-def test_bad_login(client, people):
-    r = client.post("/api/v1/auth/login", json={"email": "stu@test.io", "password": "nope"})
-    assert r.status_code == 401
+def test_4geeks_login_rejections(client, people, bc):
+    assert client.post("/api/v1/auth/breathcode", json={"token": "bad"}).status_code == 401
+    r = client.post("/api/v1/auth/breathcode", json={"token": "tok-stranger"})
+    assert r.status_code == 403 and "isn't enrolled" in r.json()["detail"]  # accounts are never auto-created
+    assert client.post("/api/v1/auth/breathcode", json={"token": "down"}).status_code == 502
+
+
+def test_password_login_is_off(client, people, monkeypatch):
+    r = client.post("/api/v1/auth/login", json={"email": "stu@test.io", "password": "secret123"})
+    assert r.status_code == 404
+    assert client.get("/api/v1/auth/config").json()["dev_password_login"] is False
+    for gone in ("/api/v1/auth/set-password", "/api/v1/auth/change-password"):
+        assert client.post(gone, json={}).status_code in (404, 405)
+    monkeypatch.setattr(settings, "dev_password_login", True)  # local development only
+    assert client.post("/api/v1/auth/login", json={"email": "stu@test.io", "password": "secret123"}).status_code == 200
+    assert client.post("/api/v1/auth/login", json={"email": "stu@test.io", "password": "nope"}).status_code == 401
 
 
 def test_extension_flow(client, people):
@@ -77,7 +122,7 @@ def test_admin_creates_student(client, people):
         "email": "new@test.io", "name": "New Student", "role": "student", "cohort_id": people["cohort"].id,
         "advisor_id": people["advisor"].id})
     assert r.status_code == 201, r.text
-    assert r.json()["temporary_password"]
+    assert "temporary_password" not in r.json()
     assert r.json()["student"]["points"] == 80
 
 
