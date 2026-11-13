@@ -6,7 +6,7 @@ import { statusNum } from "../lib/format";
 import { Bar } from "./ui";
 import { AccountButton } from "./Account";
 import { LangSwitch, t } from "../lib/i18n";
-import { IBell, IBriefcase, IChat, IFile, IGrid, IList, IPause, IPlus, IShield, ISliders, IStar, IUsers } from "./Icons";
+import { IBell, IBriefcase, IChat, IFile, IGrid, IList, IPause, IPlug, IPlus, IShield, ISliders, IStar, IUsers } from "./Icons";
 
 const nl = ({ isActive }: { isActive: boolean }) => "nl" + (isActive ? " active" : "");
 
@@ -74,6 +74,9 @@ export function StaffLayout() {
           <NavLink className={nl} to="/staff/resumes"><IFile />{t("Resume Studio")}</NavLink>
           <div className="ng">{t("OPPORTUNITIES")}</div>
           <NavLink className={nl} to="/staff/jobs"><IBriefcase />{t("Job Radar")}</NavLink>
+          <div className="ng">{t("INSIGHTS")}</div>
+          <NavLink className={nl} to="/staff/dashboards"><IGrid />{t("Dashboards")}</NavLink>
+          <NavLink className={nl} to="/staff/automations"><IPlug />{t("Automations")}</NavLink>
           <div className="ng">{t("MANAGE")}</div>
           <NavLink className={nl} to="/admin" end><IPause />{t("Pause requests")}</NavLink>
           {isAdmin && <NavLink className={nl} to="/admin/rules"><ISliders />{t("Rules & points")}</NavLink>}

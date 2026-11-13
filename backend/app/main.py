@@ -11,7 +11,8 @@ from fastapi.staticfiles import StaticFiles
 from . import events  # noqa: F401 — registers the outbound-event listener
 from .config import settings
 from .db import Base, SessionLocal, engine
-from .routers import admin_routes, auth_routes, jobs_routes, resume_routes, staff_routes, student_routes
+from .routers import (admin_routes, auth_routes, automation_routes, jobs_routes, report_routes, resume_routes,
+                      staff_routes, student_routes)
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 log = logging.getLogger("geekforce")
@@ -55,9 +56,22 @@ async def language(request, call_next):
         request_lang.reset(token)
 
 
+from fastapi import HTTPException as _HTTPException  # noqa: E402
+from fastapi.exception_handlers import http_exception_handler as _default_http  # noqa: E402
+
+
+@app.exception_handler(_HTTPException)
+async def translated_errors(request: Request, exc: _HTTPException):
+    """Error messages in the app's language (X-Lang). Messages already built with L() pass through unchanged."""
+    from .i18n import request_lang, tr
+    if isinstance(exc.detail, str) and request_lang.get() == "es":
+        exc = _HTTPException(exc.status_code, tr(exc.detail, "es"), headers=exc.headers)
+    return await _default_http(request, exc)
+
+
 API = "/api/v1"
 for r in (auth_routes.router, student_routes.router, staff_routes.router, jobs_routes.router, resume_routes.router, admin_routes.router,
-          admin_routes.cron_router):
+          admin_routes.cron_router, automation_routes.router, report_routes.router):
     app.include_router(r, prefix=API)
 
 

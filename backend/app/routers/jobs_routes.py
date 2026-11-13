@@ -22,7 +22,7 @@ router = APIRouter(tags=["jobs"])
 
 def job_dict(j: Job, fits: int | None = None) -> dict:
     return {"id": j.id, "source": j.source, "title": j.title, "company": j.company, "location": j.location,
-            "work_mode": j.work_mode, "url": j.url, "program": j.program, "posted_at": iso(j.posted_at),
+            "work_mode": j.work_mode, "url": j.url, "program": j.program, "country": j.country, "posted_at": iso(j.posted_at),
             "found_at": iso(j.created_at), "salary_min": j.salary_min, "salary_max": j.salary_max,
             "contact_name": j.contact_name, "contact_handle": j.contact_handle, "outreach_status": j.outreach_status,
             "is_partner": j.is_partner, "notes": j.notes, "active": j.active, "shared_count": j.shared_count,
@@ -36,7 +36,8 @@ def ingest(payload: dict | list = Body(...), x_jobs_secret: str = Header(default
            db: Session = Depends(get_db)):
     """Send one job or many. Body: a job object, a list of jobs, or {"source": "grokbot", "jobs": [...]}.
 
-    Job fields: title (required), company, location, url, description, posted_at (ISO), program
+    Job fields: title (required), company, location, country (ES, MX, CO, VE, AR… or the name), url, description,
+    posted_at (ISO), program
     (full_stack | ai_engineering | data_science | cybersecurity), external_id, contact_name, contact_handle,
     outreach_status (none | contacted | replied | interviewing | closed), work_mode, salary_min, salary_max, notes.
     """
@@ -48,7 +49,7 @@ def ingest(payload: dict | list = Body(...), x_jobs_secret: str = Header(default
         items = payload["jobs"]
     else:
         items = payload if isinstance(payload, list) else [payload]
-    if source not in ("grokbot", "partner", "manual", "adzuna", "x"):
+    if source not in ("grokbot", "partner", "manual", "adzuna", "x", "n8n"):
         source = "grokbot"
     if len(items) > 500:
         raise HTTPException(413, "Send at most 500 jobs per request")
@@ -73,7 +74,7 @@ def ingest(payload: dict | list = Body(...), x_jobs_secret: str = Header(default
 
 @router.get("/advisor/jobs")
 def list_jobs(program: str = "", source: str = "", q: str = "", days: int = 14, outreach: str = "",
-              partner: bool = False, user: User = Depends(require_staff), db: Session = Depends(get_db)):
+              partner: bool = False, country: str = "", user: User = Depends(require_staff), db: Session = Depends(get_db)):
     query = select(Job).where(Job.active.is_(True), Job.created_at >= now_utc() - timedelta(days=max(1, min(days, 365))))
     if program:
         query = query.where(Job.program == program)
@@ -83,6 +84,8 @@ def list_jobs(program: str = "", source: str = "", q: str = "", days: int = 14, 
         query = query.where(Job.outreach_status == outreach)
     if partner:
         query = query.where(Job.is_partner.is_(True))
+    if country:
+        query = query.where(Job.country == country.upper())
     if q:
         like = f"%{q.lower()}%"
         query = query.where(or_(func.lower(Job.title).like(like), func.lower(Job.company).like(like),
@@ -100,7 +103,9 @@ def list_jobs(program: str = "", source: str = "", q: str = "", days: int = 14, 
     items = [job_dict(j, by_prog.get(j.program, 0) if j.program else total) for j in jobs]
     sources = dict(db.execute(select(Job.source, func.count()).where(Job.active.is_(True))
                               .group_by(Job.source)).all())
-    return {"items": items, "sources": sources, "programs": JR.PROGRAMS,
+    countries = {c: n for c, n in db.execute(select(Job.country, func.count()).where(Job.active.is_(True), Job.country.is_not(None))
+                                             .group_by(Job.country)).all()}
+    return {"items": items, "sources": sources, "programs": JR.PROGRAMS, "countries": countries,
             "adzuna_connected": bool(settings.adzuna_app_id and settings.adzuna_app_key),
             "ingest_ready": bool(settings.jobs_ingest_secret)}
 
@@ -109,6 +114,7 @@ class JobIn(BaseModel):
     title: str = Field(min_length=2, max_length=255)
     company: str | None = None
     location: str | None = None
+    country: str | None = None
     url: str | None = None
     program: str | None = None
     description: str | None = None
@@ -243,8 +249,20 @@ def job_shares(job_id: str, user: User = Depends(require_staff), db: Session = D
 
 def log_event(db: Session, share: JobShare, kind: str, actor: User | None, detail: str | None = None,
               data: dict | None = None) -> JobShareEvent:
-    ev = JobShareEvent(share_id=share.id, kind=kind, actor_id=actor.id if actor else None, detail=detail, data=data)
+    # explicit timestamp: steps saved in one request keep their order (now() would give them all the same time)
+    ev = JobShareEvent(share_id=share.id, kind=kind, actor_id=actor.id if actor else None, detail=detail, data=data,
+                       created_at=now_utc())
     db.add(ev)
+    hook = {"shared": "job_shared", "interested": "job_response", "applied": "job_response", "not_a_fit": "job_response",
+            "stage": "application_stage"}.get(kind)
+    if hook:
+        from .. import events
+        st = db.get(Student, share.student_id)
+        job = share.job or db.get(Job, share.job_id)
+        events.emit(db, hook, st, {"kind": kind, "share_id": share.id, "detail": detail, **(data or {}),
+                                   "job": {"id": job.id, "title": job.title, "company": job.company, "url": job.url,
+                                           "country": job.country} if job else None,
+                                   "by": actor.name if actor else None})
     return ev
 
 

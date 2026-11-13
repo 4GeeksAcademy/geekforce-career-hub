@@ -110,8 +110,22 @@ def _parse_dt(v) -> datetime | None:
         return None
 
 
-FIELDS = ("title", "company", "location", "work_mode", "url", "description", "program", "posted_at", "salary_min",
+FIELDS = ("title", "company", "location", "country", "work_mode", "url", "description", "program", "posted_at", "salary_min",
           "salary_max", "contact_name", "contact_handle", "outreach_status", "is_partner", "notes")
+
+
+COUNTRIES = {
+    "US": ("us", "usa", "united states", "estados unidos", "eeuu", "ee.uu."), "ES": ("es", "spain", "españa", "espana"),
+    "MX": ("mx", "mexico", "méxico", "mex"), "CO": ("co", "colombia", "col"), "VE": ("ve", "venezuela", "ven"),
+    "AR": ("ar", "argentina", "arg"), "CL": ("cl", "chile"), "PE": ("pe", "peru", "perú"), "UY": ("uy", "uruguay"),
+    "CR": ("cr", "costa rica"), "EC": ("ec", "ecuador"), "PA": ("pa", "panama", "panamá"), "DO": ("do", "república dominicana", "dominican republic"),
+}
+_C = {alias: code for code, aliases in COUNTRIES.items() for alias in aliases}
+
+
+def country_code(v) -> str | None:
+    """'España', 'spain', 'ES' → 'ES'. Unknown → None."""
+    return _C.get(str(v or "").strip().lower())
 
 
 def upsert(db: DB, source: str, data: dict) -> tuple[Job, bool]:
@@ -134,6 +148,10 @@ def upsert(db: DB, source: str, data: dict) -> tuple[Job, bool]:
         db.add(job)
     vals = {k: data.get(k) for k in FIELDS if data.get(k) not in (None, "")}
     vals["title"] = title
+    if "country" in vals:
+        vals["country"] = country_code(vals["country"])
+        if not vals["country"]:
+            vals.pop("country")
     if "posted_at" in vals:
         vals["posted_at"] = _parse_dt(vals["posted_at"])
     if "description" in vals:
@@ -182,6 +200,7 @@ def from_adzuna(row: dict, program: str) -> dict:
         "company": (row.get("company") or {}).get("display_name"),
         "location": (row.get("location") or {}).get("display_name"), "url": row.get("redirect_url"),
         "description": row.get("description"), "posted_at": row.get("created"), "program": program,
+        "country": settings.adzuna_country,
         "salary_min": int(row["salary_min"]) if row.get("salary_min") else None,
         "salary_max": int(row["salary_max"]) if row.get("salary_max") else None,
     }

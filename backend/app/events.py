@@ -31,17 +31,34 @@ def student_payload(st) -> dict:
             "hub_url": f"{settings.app_url.rstrip('/')}/staff/students/{st.id}"}
 
 
+# Events that also go to ActiveCampaign and the global webhook (student lifecycle). Others only reach automations.
+LIFECYCLE = {"stage_changed", "status_changed"}
+
+
 def emit(db: Session, name: str, st, data: dict | None = None):
     from .services import activecampaign as ac
-    item = {"event": name, "student": student_payload(st), "data": data or {},
-            "ac_fields": ac.student_fields(st), "ac_status": ac.status_key(st)}
+    from . import automations as A
+    item = {"event": name, "student": student_payload(st), "data": data or {}}
+    if name in LIFECYCLE:
+        item.update({"ac_fields": ac.student_fields(st), "ac_status": ac.status_key(st)})
+    try:
+        item["_automations"] = [t["id"] for t in A.targets_for(db, name)]
+    except Exception:  # noqa: BLE001  (table missing in an old DB, etc.)
+        item["_automations"] = []
+    item["_bind"] = db.get_bind()
     db.info.setdefault("pending_events", []).append(item)
 
 
 def _deliver(items: list[dict]):
     from .services import activecampaign as ac
+    from . import automations as A
     for it in items:
         st = it["student"]
+        targets, bind = it.pop("_automations", []), it.pop("_bind", None)
+        if targets:
+            A.deliver_event(targets, {k: v for k, v in it.items() if not k.startswith("ac_")}, bind)
+        if "ac_status" not in it:
+            continue
         if ac.configured():
             ac.push_state(st["email"], st["name"], it["ac_fields"], it["ac_status"], st["stage"])
         if settings.automation_webhook_url:

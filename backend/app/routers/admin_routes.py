@@ -3,16 +3,18 @@ import secrets
 from datetime import date, timedelta
 
 from fastapi import APIRouter, Depends, Header, HTTPException
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel, Field, EmailStr
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from ..auth import hash_password, require_admin, require_staff
 from ..config import settings
 from ..db import get_db
+from ..i18n import L
 from ..jobs import JOBS, run_job
 from ..models import AuditLog, Cohort, Notification, ResumeVersion, RuleSetting, Student, User
 from ..rules import RULES, get_rules, rules_catalog
+from ..timeutil import now_utc
 from ..serializers import iso, student_brief
 
 router = APIRouter(prefix="/admin", tags=["admin"])
@@ -119,6 +121,7 @@ class UserIn(BaseModel):
 
 class UserPatch(BaseModel):
     name: str | None = None
+    email: str | None = None
     role: str | None = None
     is_active: bool | None = None
     cohort_id: str | None = None
@@ -128,19 +131,46 @@ class UserPatch(BaseModel):
     password: str | None = None
 
 
-def user_dict(u: User) -> dict:
+def user_dict(u: User, history: dict | None = None) -> dict:
     return {"id": u.id, "email": u.email, "name": u.name, "role": u.role, "is_active": u.is_active,
+            "archived_at": iso(u.archived_at), "language": u.language,
             "last_login_at": iso(u.last_login_at), "student": student_brief(u.student) if u.student else None,
             "job_search_start_date": u.student.job_search_start_date.isoformat()
-            if u.student and u.student.job_search_start_date else None}
+            if u.student and u.student.job_search_start_date else None,
+            **({"history": history} if history is not None else {})}
+
+
+def _history(db: Session, u: User) -> dict:
+    """What would be lost by deleting this person for good."""
+    from ..models import Application, Interaction, PointsEvent, Session as SessionModel
+    h = {"students_advised": db.scalar(select(func.count(Student.id)).where(Student.advisor_id == u.id)) or 0,
+         "sessions_led": db.scalar(select(func.count(SessionModel.id)).where(SessionModel.advisor_id == u.id)) or 0,
+         "notes_written": db.scalar(select(func.count(Interaction.id)).where(Interaction.advisor_id == u.id)) or 0,
+         "audit_entries": db.scalar(select(func.count(AuditLog.id)).where(AuditLog.actor_id == u.id)) or 0}
+    if u.student:
+        sid = u.student.id
+        h.update({"points_events": db.scalar(select(func.count(PointsEvent.id)).where(PointsEvent.student_id == sid)) or 0,
+                  "applications": db.scalar(select(func.count(Application.id)).where(Application.student_id == sid)) or 0,
+                  "sessions": db.scalar(select(func.count(SessionModel.id)).where(SessionModel.student_id == sid)) or 0})
+    return h
 
 
 @router.get("/users")
-def list_users(role: str | None = None, user: User = Depends(require_staff), db: Session = Depends(get_db)):
+def list_users(role: str | None = None, archived: bool = False, user: User = Depends(require_staff),
+               db: Session = Depends(get_db)):
     q = select(User).order_by(User.name)
+    q = q.where(User.archived_at.is_not(None)) if archived else q.where(User.archived_at.is_(None))
     if role:
         q = q.where(User.role.in_(role.split(",")))
     return [user_dict(u) for u in db.scalars(q)]
+
+
+@router.get("/users/{uid}")
+def get_user(uid: str, user: User = Depends(require_admin), db: Session = Depends(get_db)):
+    u = db.get(User, uid)
+    if not u:
+        raise HTTPException(404, "Not found")
+    return user_dict(u, _history(db, u))
 
 
 @router.post("/users", status_code=201)
@@ -165,21 +195,132 @@ def create_user(body: UserIn, user: User = Depends(require_admin), db: Session =
     return {**user_dict(u), "temporary_password": None if body.password else temp}
 
 
+def _admins_left(db: Session, excluding: str) -> int:
+    return db.scalar(select(func.count(User.id)).where(User.role == "admin", User.is_active.is_(True),
+                                                       User.archived_at.is_(None), User.id != excluding)) or 0
+
+
 @router.patch("/users/{uid}")
 def update_user(uid: str, body: UserPatch, user: User = Depends(require_admin), db: Session = Depends(get_db)):
     u = db.get(User, uid)
     if not u:
         raise HTTPException(404, "Not found")
     data = body.model_dump(exclude_unset=True)
-    for k in ("name", "role", "is_active"):
-        if k in data:
-            setattr(u, k, data[k])
+    changes = []
+    if "email" in data and data["email"] and data["email"].lower() != u.email:
+        email = data["email"].strip().lower()
+        if "@" not in email:
+            raise HTTPException(422, "Enter a valid email")
+        if db.scalar(select(User).where(func.lower(User.email) == email, User.id != u.id)):
+            raise HTTPException(409, "A user with this email already exists")
+        changes.append(f"email {u.email} → {email}")
+        u.email = email
+    if "name" in data and data["name"] and data["name"].strip() != u.name:
+        changes.append(f"name {u.name} → {data['name'].strip()}")
+        u.name = data["name"].strip()
+    if "role" in data and data["role"] and data["role"] != u.role:
+        new = data["role"]
+        if new not in ("student", "advisor", "admin"):
+            raise HTTPException(422, "Unknown role")
+        if (new == "student") != (u.role == "student"):
+            raise HTTPException(422, "Students and staff have different records. To move someone between them, "
+                                     "remove this account and create a new one with the other role.")
+        if u.role == "admin" and _admins_left(db, u.id) == 0:
+            raise HTTPException(422, "This is the last admin. Make someone else admin first.")
+        changes.append(f"role {u.role} → {new}")
+        u.role = new
+    if "is_active" in data and data["is_active"] is not None and data["is_active"] != u.is_active:
+        if not data["is_active"] and u.id == user.id:
+            raise HTTPException(422, "You can't deactivate your own account.")
+        if not data["is_active"] and u.role == "admin" and _admins_left(db, u.id) == 0:
+            raise HTTPException(422, "This is the last admin. Make someone else admin first.")
+        changes.append("activated" if data["is_active"] else "deactivated")
+        u.is_active = data["is_active"]
     if "password" in data and data["password"]:
+        if len(data["password"]) < 8:
+            raise HTTPException(422, "Use at least 8 characters")
         u.password_hash = hash_password(data["password"])
+        changes.append("password reset")
     if u.student:
         for k in ("cohort_id", "advisor_id", "job_search_start_date", "deadline_days"):
-            if k in data:
-                setattr(u.student, k, data[k])
+            if k in data and getattr(u.student, k) != data[k]:
+                setattr(u.student, k, data[k] or None)
+                changes.append(k.replace("_id", "").replace("_", " ") + " changed")
+    if changes:
+        db.add(AuditLog(actor_id=user.id, student_id=u.student.id if u.student else None, action="user_updated",
+                        detail=f"{u.name}: " + "; ".join(changes)))
+    db.commit()
+    return user_dict(u)
+
+
+class RemoveIn(BaseModel):
+    permanent: bool = False
+    reassign_to: str | None = None  # advisor's students go to this advisor
+    reason: str | None = Field(default=None, max_length=500)
+
+
+@router.post("/users/{uid}/remove")
+def remove_user(uid: str, body: RemoveIn, user: User = Depends(require_admin), db: Session = Depends(get_db)):
+    """Remove someone from the lists. By default the account is archived (can't sign in, history kept, restorable).
+    permanent=true deletes it, only when there is no history attached."""
+    u = db.get(User, uid)
+    if not u:
+        raise HTTPException(404, "Not found")
+    if u.id == user.id:
+        raise HTTPException(422, "You can't remove your own account.")
+    if u.role == "admin" and _admins_left(db, u.id) == 0:
+        raise HTTPException(422, "This is the last admin. Make someone else admin first.")
+    advised = list(db.scalars(select(Student).where(Student.advisor_id == u.id)).all())
+    if advised:
+        to = db.get(User, body.reassign_to) if body.reassign_to else None
+        if not to or to.role not in ("advisor", "admin") or to.id == u.id or to.archived_at:
+            raise HTTPException(422, L("{name} advises {n} student(s). Choose who takes them over.", name=u.name, n=len(advised)))
+        for st in advised:
+            st.advisor_id = to.id
+    name = u.name
+    if body.permanent:
+        h = _history(db, u)
+        h.pop("students_advised", None)
+        if any(h.values()):
+            raise HTTPException(422, "This person has history (points, applications, sessions or notes), so they can "
+                                     "only be archived. Archiving keeps the records and blocks sign-in.")
+        from sqlalchemy import delete as sa_delete
+        from sqlalchemy.exc import IntegrityError
+        from ..models import NotificationPreference
+        try:
+            with db.begin_nested():
+                db.execute(sa_delete(Notification).where(Notification.user_id == u.id))
+                db.execute(sa_delete(NotificationPreference).where(NotificationPreference.user_id == u.id))
+                if u.student:
+                    db.delete(u.student)
+                    db.flush()
+                db.delete(u)
+                db.flush()
+        except IntegrityError:
+            raise HTTPException(422, "This person still has records linked to them, so they can only be archived. "
+                                     "Archiving keeps the records and blocks sign-in.")
+        db.add(AuditLog(actor_id=user.id, action="user_deleted", detail=f"{name}" + (f" · {body.reason}" if body.reason else "")))
+        db.commit()
+        return {"ok": True, "deleted": True}
+    u.is_active, u.archived_at = False, now_utc()
+    if u.student and u.student.status in ("active", "onboarding"):
+        u.student.status = "withdrawn"
+    db.add(AuditLog(actor_id=user.id, student_id=u.student.id if u.student else None, action="user_archived",
+                    detail=f"{name}" + (f" · reassigned {len(advised)} student(s)" if advised else "") +
+                           (f" · {body.reason}" if body.reason else "")))
+    db.commit()
+    return {"ok": True, "archived": True, "reassigned": len(advised)}
+
+
+@router.post("/users/{uid}/restore")
+def restore_user(uid: str, user: User = Depends(require_admin), db: Session = Depends(get_db)):
+    u = db.get(User, uid)
+    if not u or not u.archived_at:
+        raise HTTPException(404, "Not found")
+    u.archived_at, u.is_active = None, True
+    if u.student and u.student.status == "withdrawn":
+        u.student.status = "active"
+    db.add(AuditLog(actor_id=user.id, action="user_restored", detail=u.name))
     db.commit()
     return user_dict(u)
 

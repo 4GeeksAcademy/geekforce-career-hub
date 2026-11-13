@@ -30,6 +30,7 @@ class Settings(BaseSettings):
 
     # Automations: every stage/status change is POSTed here (e.g. an n8n Webhook URL), header X-GeekForce-Secret
     automation_webhook_url: str = ""
+    n8n_base_url: str = "https://n8n.4geeks.com"
     automation_webhook_secret: str = ""
 
     # Brevo (email fallback, only used when ActiveCampaign isn't configured)

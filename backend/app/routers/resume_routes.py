@@ -349,6 +349,8 @@ def approve(student_id: str, body: DecisionIn, user: User = Depends(require_staf
                           template=p.template, created_by=user.id))
     engine.complete_profile_task(db, st, "cv", user)  # Stage 1 "Resume ready" + profile points
     db.add(AuditLog(actor_id=user.id, student_id=st.id, action="resume_approved", detail=body.note or "Resume approved"))
+    from .. import events
+    events.emit(db, "resume_approved", st, {"first": first, "by": user.name, "note": body.note, "lang": p.lang})
     notify_student(db, st, type="success", category="advisor", pref_key="session_notes",
                    title=M("Your resume is approved: downloads are unlocked") if first else M("Your resume is approved"),
                    body=Cat((body.note or "").strip(), M("Tailor it to each job in the Resume Builder and download any version you need.")), link="/resume")

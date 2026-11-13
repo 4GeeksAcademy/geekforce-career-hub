@@ -95,30 +95,59 @@ export function AdminRules() {
 }
 
 type UserRow = { id: string; email: string; name: string; role: string; is_active: boolean; last_login_at: string | null;
-  student: { cohort: string | null; advisor: string | null; points: number } | null };
+  archived_at: string | null;
+  student: { cohort: string | null; cohort_id: string | null; advisor: string | null; advisor_id: string | null; points: number } | null };
 type Cohort = { id: string; name: string; program: string | null; location: string | null; region: string; deadline_days: number | null };
+type History = Record<string, number>;
+
+const ROLE_LABEL: Record<string, string> = { student: "Student", advisor: "Advisor", admin: "Admin" };
 
 export function AdminPeople() {
-  const users = useApi<UserRow[]>("/admin/users");
+  const [showArchived, setShowArchived] = useState(false);
+  const [q, setQ] = useState("");
+  const [role, setRole] = useState("");
+  const users = useApi<UserRow[]>(`/admin/users${showArchived ? "?archived=true" : ""}`);
+  const active = useApi<UserRow[]>("/admin/users");
   const cohorts = useApi<Cohort[]>("/admin/cohorts");
   const [adding, setAdding] = useState(false);
   const [addingCohort, setAddingCohort] = useState(false);
+  const [editing, setEditing] = useState<UserRow | null>(null);
+  const [removing, setRemoving] = useState<UserRow | null>(null);
   const toast = useToast();
-  const advisors = users.data?.filter((u) => u.role !== "student") || [];
+  const { user: me } = useAuth();
+  const advisors = active.data?.filter((u) => u.role !== "student" && u.is_active) || [];
+  const reload = () => { users.reload(); active.reload(); };
+  const ql = q.trim().toLowerCase();
+  const rows = (users.data || []).filter((u) => (!role || u.role === role) &&
+    (!ql || u.name.toLowerCase().includes(ql) || u.email.toLowerCase().includes(ql) || (u.student?.cohort || "").toLowerCase().includes(ql)));
+  const restore = async (u: UserRow) => {
+    try { await api.post(`/admin/users/${u.id}/restore`); toast(t("{name} restored", { name: u.name })); reload(); }
+    catch (e) { toast((e as Error).message); }
+  };
   return (
     <>
-      <header className="top"><div><div className="kick">{t("Admin")}</div><h1>{t("People &")} <em>{t("cohorts.")}</em></h1><div className="sub">{t("Create student, advisor and admin accounts.")}</div></div>
+      <header className="top"><div><div className="kick">{t("Admin")}</div><h1>{t("People &")} <em>{t("cohorts.")}</em></h1><div className="sub">{t("Create, edit and remove student, advisor and admin accounts.")}</div></div>
         <div style={{ display: "flex", gap: 10 }}><button className="btn bg" onClick={() => setAddingCohort(true)}>{t("New cohort")}</button><button className="btn bp" onClick={() => setAdding(true)}><IPlus size={18} />{t("Add person")}</button></div></header>
       <div className="content">
         <section className="card stack">
-          <h2 className="h2">{t("People")}</h2>
-          {users.loading ? <Spinner /> : <div className="tw"><table>
-            <thead><tr><th>{t("Name")}</th><th>{t("Role")}</th><th>{t("Cohort")}</th><th>{t("Advisor")}</th><th>{t("Points")}</th><th>{t("Last sign-in")}</th><th></th></tr></thead>
-            <tbody>{users.data?.map((u) => (
-              <tr key={u.id}><td><strong>{u.name}</strong><div className="cap">{u.email}</div></td>
-                <td style={{ textTransform: "capitalize" }}>{u.role}</td><td className="cap">{u.student?.cohort || "—"}</td><td className="cap">{u.student?.advisor || "—"}</td>
-                <td className="num">{u.student?.points ?? "—"}</td><td className="cap">{u.last_login_at ? relTime(u.last_login_at) : t("Never")}</td>
-                <td><button className="btn bg sm" onClick={async () => { await api.patch(`/admin/users/${u.id}`, { is_active: !u.is_active }); users.reload(); }}>{u.is_active ? t("Deactivate") : t("Activate")}</button></td></tr>))}</tbody></table></div>}
+          <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+            <h2 className="h2" style={{ marginRight: "auto" }}>{showArchived ? t("Removed people") : t("People")}</h2>
+            <input className="in" style={{ width: 220 }} placeholder={t("Search name, email or cohort")} aria-label={t("Search")} value={q} onChange={(e) => setQ(e.target.value)} />
+            <select className="in" style={{ width: 150 }} aria-label={t("Role")} value={role} onChange={(e) => setRole(e.target.value)}>
+              <option value="">{t("All roles")}</option>{Object.entries(ROLE_LABEL).map(([k, v]) => <option key={k} value={k}>{t(v)}</option>)}</select>
+            <label className="cap" style={{ display: "flex", gap: 6, alignItems: "center" }}><input type="checkbox" checked={showArchived} onChange={(e) => setShowArchived(e.target.checked)} />{t("Show removed")}</label>
+          </div>
+          {users.loading ? <Spinner /> : rows.length === 0 ? <div className="cap">{showArchived ? t("Nobody has been removed.") : t("No one matches.")}</div> : <div className="tw"><table>
+            <thead><tr><th>{t("Name")}</th><th>{t("Role")}</th><th>{t("Cohort")}</th><th>{t("Advisor")}</th><th>{t("Points")}</th><th>{showArchived ? t("Removed") : t("Last sign-in")}</th><th></th></tr></thead>
+            <tbody>{rows.map((u) => (
+              <tr key={u.id} style={!u.is_active && !showArchived ? { opacity: .6 } : undefined}><td><strong>{u.name}</strong>{u.id === me?.id && <span className="cap"> · {t("you")}</span>}<div className="cap">{u.email}</div></td>
+                <td>{t(ROLE_LABEL[u.role] || u.role)}{!u.is_active && !showArchived && <div className="cap">{t("Deactivated")}</div>}</td><td className="cap">{u.student?.cohort || "—"}</td><td className="cap">{u.student?.advisor || "—"}</td>
+                <td className="num">{u.student?.points ?? "—"}</td>
+                <td className="cap">{showArchived ? (u.archived_at ? fmtDate(u.archived_at) : "—") : u.last_login_at ? relTime(u.last_login_at) : t("Never")}</td>
+                <td style={{ whiteSpace: "nowrap", textAlign: "right" }}>{showArchived
+                  ? <button className="btn bg sm" onClick={() => restore(u)}>{t("Restore")}</button>
+                  : <><button className="btn bg sm" onClick={() => setEditing(u)}>{t("Edit")}</button>{" "}
+                    {u.id !== me?.id && <button className="btn bd sm" onClick={() => setRemoving(u)}>{t("Remove")}</button>}</>}</td></tr>))}</tbody></table></div>}
         </section>
         <section className="card stack">
           <h2 className="h2">{t("Cohorts")}</h2>
@@ -126,9 +155,92 @@ export function AdminPeople() {
             <tbody>{cohorts.data?.map((c) => <tr key={c.id}><td><strong>{c.name}</strong></td><td>{c.program}</td><td style={{ textTransform: "uppercase" }}>{c.region}</td><td>{c.deadline_days ? t("{deadline_days} days", { deadline_days: c.deadline_days }) : t("Default")}</td></tr>)}</tbody></table></div>
         </section>
       </div>
-      {adding && <AddPerson cohorts={cohorts.data || []} advisors={advisors} onClose={() => setAdding(false)} onDone={(m) => { toast(m); users.reload(); }} />}
+      {adding && <AddPerson cohorts={cohorts.data || []} advisors={advisors} onClose={() => setAdding(false)} onDone={(m) => { toast(m); reload(); }} />}
       {addingCohort && <AddCohort onClose={() => setAddingCohort(false)} onDone={() => { setAddingCohort(false); toast(t("Cohort created")); cohorts.reload(); }} />}
+      {editing && <EditPerson u={editing} me={me?.id} cohorts={cohorts.data || []} advisors={advisors} onClose={() => setEditing(null)} onDone={(m) => { setEditing(null); toast(m); reload(); }} />}
+      {removing && <RemovePerson u={removing} advisors={advisors} onClose={() => setRemoving(null)} onDone={(m) => { setRemoving(null); toast(m); reload(); }} />}
     </>);
+}
+
+function EditPerson({ u, me, cohorts, advisors, onClose, onDone }: { u: UserRow; me?: string; cohorts: Cohort[]; advisors: UserRow[]; onClose: () => void; onDone: (m: string) => void }) {
+  const [f, setF] = useState({ name: u.name, email: u.email, role: u.role, is_active: u.is_active,
+    cohort_id: u.student?.cohort_id || "", advisor_id: u.student?.advisor_id || "", password: "" });
+  const [err, setErr] = useState<unknown>(null);
+  const [busy, setBusy] = useState(false);
+  const staff = u.role !== "student";
+  const submit = async (e: FormEvent) => {
+    e.preventDefault(); setErr(null); setBusy(true);
+    try {
+      const body: Record<string, unknown> = { name: f.name, email: f.email, is_active: f.is_active };
+      if (staff) body.role = f.role;
+      else { body.cohort_id = f.cohort_id || null; body.advisor_id = f.advisor_id || null; }
+      if (f.password) body.password = f.password;
+      await api.patch(`/admin/users/${u.id}`, body);
+      onDone(t("{name} updated", { name: f.name }));
+    } catch (e) { setErr(e); } finally { setBusy(false); }
+  };
+  return <Modal title={t("Edit {name}", { name: u.name })} onClose={onClose}>
+    <form className="stack" onSubmit={submit}>
+      <div><label className="lb" htmlFor="en">{t("Full name")}</label><input className="in" id="en" required value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} /></div>
+      <div><label className="lb" htmlFor="ee">{t("Email")}</label><input className="in" id="ee" type="email" required value={f.email} onChange={(e) => setF({ ...f, email: e.target.value })} /></div>
+      {staff ? <div><label className="lb" htmlFor="er">{t("Role")}</label>
+        <select className="in" id="er" value={f.role} disabled={u.id === me} onChange={(e) => setF({ ...f, role: e.target.value })}>
+          <option value="advisor">{t("Advisor")}</option><option value="admin">{t("Admin")}</option></select>
+        <div className="cap" style={{ marginTop: 4 }}>{u.id === me ? t("You can't change your own role.") : t("Admins see every student and manage rules, people and automations. Advisors see their own students.")}</div></div>
+        : <>
+          <div className="cap">{t("Role: Student. Students and staff keep different records, so to make a student staff (or the reverse) remove this account and add a new one.")}</div>
+          <div><label className="lb" htmlFor="ec">{t("Cohort")}</label><select className="in" id="ec" value={f.cohort_id} onChange={(e) => setF({ ...f, cohort_id: e.target.value })}>
+            <option value="">{t("No cohort")}</option>{cohorts.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}</select></div>
+          <div><label className="lb" htmlFor="ea">{t("Advisor")}</label><select className="in" id="ea" value={f.advisor_id} onChange={(e) => setF({ ...f, advisor_id: e.target.value })}>
+            <option value="">{t("No advisor")}</option>{advisors.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}</select></div>
+        </>}
+      <div><label className="lb" htmlFor="ep">{t("New password (optional)")}</label><input className="in" id="ep" type="text" autoComplete="off" value={f.password} placeholder={t("Leave empty to keep the current one")} onChange={(e) => setF({ ...f, password: e.target.value })} /></div>
+      {u.id !== me && <label style={{ display: "flex", gap: 8, alignItems: "center" }}><input type="checkbox" checked={f.is_active} onChange={(e) => setF({ ...f, is_active: e.target.checked })} />{t("Can sign in")}</label>}
+      <ErrorBox error={err} />
+      <button className="btn bp" disabled={busy}>{t("Save changes")}</button>
+    </form></Modal>;
+}
+
+const HISTORY_LABEL: Record<string, string> = { students_advised: "students advised", sessions_led: "sessions led", notes_written: "notes written",
+  audit_entries: "actions in the audit log", points_events: "point events", applications: "applications", sessions: "sessions" };
+
+function RemovePerson({ u, advisors, onClose, onDone }: { u: UserRow; advisors: UserRow[]; onClose: () => void; onDone: (m: string) => void }) {
+  const detail = useApi<UserRow & { history: History }>(`/admin/users/${u.id}`);
+  const [mode, setMode] = useState<"archive" | "delete">("archive");
+  const [reassign, setReassign] = useState("");
+  const [reason, setReason] = useState("");
+  const [confirm, setConfirm] = useState("");
+  const [err, setErr] = useState<unknown>(null);
+  const [busy, setBusy] = useState(false);
+  const h = detail.data?.history || {};
+  const advised = h.students_advised || 0;
+  const hasHistory = Object.entries(h).some(([k, v]) => k !== "students_advised" && v > 0);
+  const others = advisors.filter((a) => a.id !== u.id);
+  const submit = async (e: FormEvent) => {
+    e.preventDefault(); setErr(null); setBusy(true);
+    try {
+      const r = await api.post<{ deleted?: boolean }>(`/admin/users/${u.id}/remove`, { permanent: mode === "delete", reassign_to: reassign || null, reason: reason || null });
+      onDone(r.deleted ? t("{name} deleted", { name: u.name }) : t("{name} removed. You can restore them from “Show removed”.", { name: u.name }));
+    } catch (e) { setErr(e); } finally { setBusy(false); }
+  };
+  if (detail.loading) return <Modal title={t("Remove {name}", { name: u.name })} onClose={onClose}><Spinner /></Modal>;
+  const facts = Object.entries(h).filter(([, v]) => v > 0).map(([k, v]) => `${v} ${t(HISTORY_LABEL[k] || k)}`);
+  return <Modal title={t("Remove {name}", { name: u.name })} onClose={onClose}>
+    <form className="stack" onSubmit={submit}>
+      <div className="cap">{facts.length ? t("Linked to this account: {facts}.", { facts: facts.join(", ") }) : t("This account has no history yet.")}</div>
+      <label style={{ display: "flex", gap: 8, alignItems: "flex-start" }}><input type="radio" name="rm" checked={mode === "archive"} onChange={() => setMode("archive")} />
+        <span><strong>{t("Remove from the lists (recommended)")}</strong><div className="cap">{t("They can't sign in and disappear from lists and dashboards filters. Their history stays, and you can restore them any time.")}</div></span></label>
+      <label style={{ display: "flex", gap: 8, alignItems: "flex-start", opacity: hasHistory ? .5 : 1 }}><input type="radio" name="rm" disabled={hasHistory} checked={mode === "delete"} onChange={() => setMode("delete")} />
+        <span><strong>{t("Delete for good")}</strong><div className="cap">{hasHistory ? t("Not available: this person has history. Remove them from the lists instead.") : t("For accounts created by mistake. This can't be undone.")}</div></span></label>
+      {advised > 0 && <div><label className="lb" htmlFor="rr">{t("Who takes over their {n} student(s)?", { n: advised })}</label>
+        <select className="in" id="rr" required value={reassign} onChange={(e) => setReassign(e.target.value)}>
+          <option value="">{t("Choose…")}</option>{others.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}</select></div>}
+      <div><label className="lb" htmlFor="rn">{t("Reason (optional, saved in the audit log)")}</label><input className="in" id="rn" value={reason} onChange={(e) => setReason(e.target.value)} /></div>
+      {mode === "delete" && <div><label className="lb" htmlFor="rc">{t("Type DELETE to confirm")}</label><input className="in" id="rc" value={confirm} onChange={(e) => setConfirm(e.target.value)} /></div>}
+      <ErrorBox error={err} />
+      <button className="btn bd" disabled={busy || (mode === "delete" && confirm.trim().toUpperCase() !== "DELETE")}>
+        {mode === "delete" ? t("Delete {name}", { name: u.name }) : t("Remove {name}", { name: u.name })}</button>
+    </form></Modal>;
 }
 
 function AddPerson({ cohorts, advisors, onClose, onDone }: { cohorts: Cohort[]; advisors: UserRow[]; onClose: () => void; onDone: (m: string) => void }) {
