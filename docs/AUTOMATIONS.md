@@ -7,7 +7,7 @@ Each automation has a card with two tabs:
 - **Card:** what it does, what starts it (schedule shown in Spain and Miami time, or the event), who it affects, its rules, what it changes, what happens if something fails, its connections with other automations, things to keep in mind, and where the code lives.
 - **Diagram:** the flow as a chart: start, steps (reads, writes, sends, calculates), decisions with their branches, links to other automations, failure points and ends.
 
-The page also has a weekly calendar (Spain or Miami time) and a "how they connect" overview.
+The page also has a weekly calendar (Spain or Miami time). Connections are shown on each card.
 
 ## Where the content lives
 
@@ -18,7 +18,6 @@ The page also has a weekly calendar (Spain or Miami time) and a "how they connec
 | A card | an item in `AUTOMATIONS` (every text is `x("español", "English")`) |
 | Its diagram | the card's `diagram` array (`start`, `step`, `decision` with `branches`, `link` to another card's `id`, `error`, `end`) |
 | A connection | `EDGES` (`feeds`, `runs_before`, `data`, `similar`). Both cards show it, so add it once |
-| An overview group | `CHAINS` |
 
 Schedules: `days` uses 1 = Monday … 7 = Sunday. GitHub flows use `tz: "UTC"` (their cron is UTC); Career Hub jobs use `tz: "America/New_York"` (the server's `TIMEZONE`). The page converts to Spain and Miami time, daylight saving included.
 

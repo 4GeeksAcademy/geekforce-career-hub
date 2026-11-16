@@ -1,8 +1,8 @@
-import { useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useSearchParams } from "react-router-dom";
-import { AUTOMATIONS, CHAINS, EDGES, type Automation, type Channel, type DNode, type Edge, type Risk, type Schedule, type Tx } from "../data/automations";
+import { AUTOMATIONS, EDGES, type Automation, type Channel, type DNode, type Edge, type Risk, type Schedule, type Tx } from "../data/automations";
 import { Modal } from "../components/ui";
-import { IAlert, IArrow, ICal, ICheck } from "../components/Icons";
+import { IAlert, IArrow, ICal, ICheck, IPlug } from "../components/Icons";
 import { lang, locale, t } from "../lib/i18n";
 
 /** Read-only catalog of every automation in the area (admins and advisors). Content: src/data/automations.ts */
@@ -40,8 +40,29 @@ function whenText(s: Schedule) {
   return { days, spain: hm(at, SPAIN), miami: hm(at, MIAMI) };
 }
 
-const CH: Record<Channel, string> = { slack: "Slack", email: "Email", inapp: "In-app", none: "No messages", activecampaign: "ActiveCampaign", webhook: "n8n webhook" };
-const platformPill = (a: Automation) => <span className={`pill ${a.platform === "github" ? "pn" : "pb"}`}>{a.platform === "github" ? "GitHub Actions" : "Career Hub"}</span>;
+// ── tooltips: where each automation runs, what each channel means, what each risk level means ──
+
+/** Hover (or keyboard focus, when `focus`) shows `tip` under the element. */
+function Tip({ tip, children, className = "", end, focus }: { tip: string; children: ReactNode; className?: string; end?: boolean; focus?: boolean }) {
+  return <span className={`tip ${end ? "tip-end" : ""} ${className}`} data-tip={tip} tabIndex={focus ? 0 : undefined}>{children}</span>;
+}
+
+const PLATFORM: Record<Automation["platform"], { name: string; tip: string }> = {
+  github: { name: "GitHub Actions", tip: "Runs on GitHub's servers, from the GF_Automations repository. It doesn't depend on Career Hub. Its schedule is set in UTC." },
+  hub: { name: "Career Hub", tip: "Runs inside this app (Career Hub, on Railway). Its schedule follows Miami time. If the app is down, it doesn't run." },
+};
+const CH: Record<Channel, { name: string; tip: string }> = {
+  slack: { name: "Slack", tip: "Posts a message in Slack." },
+  email: { name: "Email", tip: "Sends an email." },
+  inapp: { name: "In-app", tip: "Shows a notification inside Career Hub." },
+  none: { name: "No messages", tip: "Doesn't message anyone: it only updates data." },
+  activecampaign: { name: "ActiveCampaign", tip: "Updates the contact in ActiveCampaign, the email marketing tool." },
+  webhook: { name: "n8n webhook", tip: "Hands the data to n8n, which sends the messages." },
+};
+const platformPill = (a: Automation, focus?: boolean) =>
+  <Tip tip={t(PLATFORM[a.platform].tip)} focus={focus}><span className={`pill ${a.platform === "github" ? "pn" : "pb"}`}>{PLATFORM[a.platform].name}</span></Tip>;
+const channelPill = (c: Channel, focus?: boolean) =>
+  <Tip key={c} tip={t(CH[c].tip)} focus={focus}><span className="pill pg">{t(CH[c].name)}</span></Tip>;
 
 function TriggerLine({ a }: { a: Automation }) {
   if (a.trigger.kind === "event") return <span><b>{t("When it happens:")}</b> {L(a.trigger.label)}</span>;
@@ -52,6 +73,10 @@ function TriggerLine({ a }: { a: Automation }) {
 
 function edgesOf(id: string) {
   return { out: EDGES.filter((e) => e.from === id), inc: EDGES.filter((e) => e.to === id) };
+}
+
+function SectionHead({ title, help, children }: { title: string; help: string; children?: ReactNode }) {
+  return <div className="between"><div><h2 className="h2">{title}</h2><div className="cap sec-help">{help}</div></div>{children}</div>;
 }
 
 export default function Automations() {
@@ -69,49 +94,42 @@ export default function Automations() {
         <div className="sub">{t("What runs on its own in GeekForce: when it starts, what it does, how it handles errors and what it connects to.")}</div></div></header>
       <div className="content">
         <div className="stats">
-          <div className="stat s-blue"><div className="v">{AUTOMATIONS.length}</div><div className="l">{t("Automations")}</div></div>
-          <div className="stat"><div className="v">{count("github")}</div><div className="l">GitHub Actions</div><div className="c">{t("Spain · repo GF_Automations")}</div></div>
-          <div className="stat"><div className="v">{count("hub")}</div><div className="l">Career Hub</div><div className="c">{t("Miami · this app")}</div></div>
-          <div className="stat s-cream"><div className="v">{EDGES.length}</div><div className="l">{t("Connections")}</div></div>
+          <div className="stat s-blue"><div className="v">{AUTOMATIONS.length}</div><div className="l">{t("Automations")}</div><div className="c">{t("Everything that runs without anyone pressing a button")}</div></div>
+          <Tip tip={t(PLATFORM.github.tip)} className="stat"><div className="v">{count("github")}</div><div className="l">GitHub Actions</div><div className="c">{t("Spain · repo GF_Automations")}</div></Tip>
+          <Tip tip={t(PLATFORM.hub.tip)} className="stat" end><div className="v">{count("hub")}</div><div className="l">Career Hub</div><div className="c">{t("Miami · this app")}</div></Tip>
+          <div className="stat s-cream"><div className="v">{EDGES.length}</div><div className="l">{t("Connections")}</div><div className="c">{t("Open a card to see them")}</div></div>
         </div>
 
         <Week onOpen={show} />
 
-        <section className="card stack">
-          <h2 className="h2">{t("How they connect")}</h2>
-          <div className="chains">{CHAINS.map((c) => (
-            <div key={c.ids.join()} className="chain">
-              <div className="eyebrow">{L(c.title)}</div>
-              <div className="chain-row">{c.ids.map((id, i) => <span key={id} className="chain-step">
-                {i > 0 && <IArrow size={16} />}<button className="chip" onClick={() => show(id)}>{L(BY_ID[id].name)}</button></span>)}</div>
-            </div>))}</div>
-        </section>
-
         <section className="stack">
-          <div className="between">
-            <h2 className="h2">{t("All automations")}</h2>
+          <SectionHead title={t("All automations")} help={t("Click one to open its card and its diagram. Hover the labels to see where it runs and how it sends messages.")}>
             <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }} role="group" aria-label={t("Filter")}>
               {([["all", t("All")], ["github", "GitHub Actions"], ["hub", "Career Hub"]] as const).map(([k, l]) =>
                 <button key={k} className={`chip ${filter === k ? "on" : ""}`} aria-pressed={filter === k} onClick={() => setFilter(k)}>{l}</button>)}
             </div>
-          </div>
+          </SectionHead>
           <div className="auto-grid">{list.map((a) => {
             const e = edgesOf(a.id);
             const risks = a.errors.filter((r) => r.level === "risk").length;
-            return <button key={a.id} className="auto-card" onClick={() => show(a.id)}>
-              <div className="between">{platformPill(a)}{risks > 0 && <span className="pill pa"><IAlert size={14} />{risks}</span>}</div>
+            const n = e.out.length + e.inc.length;
+            return <div key={a.id} className="auto-card" role="button" tabIndex={0} onClick={() => show(a.id)}
+              onKeyDown={(ev) => (ev.key === "Enter" || ev.key === " ") && (ev.preventDefault(), show(a.id))}>
+              <div className="between">{platformPill(a)}{risks > 0 &&
+                <Tip end tip={t("Risks found when reading the code. Details in «If something fails».")}><span className="pill pa"><IAlert size={14} />{risks}</span></Tip>}</div>
               <div className="auto-name">{L(a.name)}</div>
               <div className="cap auto-short">{L(a.short)}</div>
               <div className="auto-meta"><ICal size={16} /><TriggerLine a={a} /></div>
               <div className="auto-foot">
-                {a.channels.map((c) => <span key={c} className="pill pg">{t(CH[c])}</span>)}
-                {e.out.length + e.inc.length > 0 && <span className="pill pb">{e.out.length + e.inc.length === 1 ? t("1 connection") : t("{n} connections", { n: e.out.length + e.inc.length })}</span>}
+                {a.channels.map((c) => channelPill(c))}
+                {n > 0 && <Tip tip={t("Other automations it sends students to, runs with, or shares data with.")}>
+                  <span className="pill pb"><IPlug size={12} />{n === 1 ? t("1 connection") : t("{n} connections", { n })}</span></Tip>}
               </div>
-            </button>;
+            </div>;
           })}</div>
         </section>
       </div>
-      {open && BY_ID[open] && <Card a={BY_ID[open]} onClose={() => show(null)} onOpen={show} />}
+      {open && BY_ID[open] && <Card key={open} a={BY_ID[open]} onClose={() => show(null)} onOpen={show} />}
     </>);
 }
 
@@ -134,89 +152,136 @@ function Week({ onOpen }: { onOpen: (id: string) => void }) {
   }, [tz]);
   const events = AUTOMATIONS.filter((a) => a.trigger.kind === "event");
   return <section className="card stack">
-    <div className="between">
-      <h2 className="h2">{t("Weekly calendar")}</h2>
+    <SectionHead title={t("Weekly calendar")} help={t("When each scheduled automation runs during the week. Click one to open its card.")}>
       <div style={{ display: "flex", gap: 8 }} role="group" aria-label={t("Time zone")}>
         <button className={`chip ${tz === SPAIN ? "on" : ""}`} aria-pressed={tz === SPAIN} onClick={() => setTz(SPAIN)}>{t("Spain time")}</button>
         <button className={`chip ${tz === MIAMI ? "on" : ""}`} aria-pressed={tz === MIAMI} onClick={() => setTz(MIAMI)}>{t("Miami time")}</button>
       </div>
+    </SectionHead>
+    <div className="week-legend cap">
+      <Tip tip={t(PLATFORM.github.tip)} focus><i className="wl github" />GitHub Actions</Tip>
+      <Tip tip={t(PLATFORM.hub.tip)} focus><i className="wl hub" />Career Hub</Tip>
     </div>
     <div className="week">{[1, 2, 3, 4, 5, 6, 7].map((d) => (
       <div key={d} className="week-day">
         <div className="eyebrow">{dayName(d)}</div>
-        {cells[d].map(({ a, time }) => <button key={a.id} className={`week-item ${a.platform}`} onClick={() => onOpen(a.id)}>
+        {cells[d].map(({ a, time }) => <button key={a.id} className={`week-item ${a.platform}`} onClick={() => onOpen(a.id)}
+          title={`${PLATFORM[a.platform].name} · ${L(a.short)}`}>
           <span className="num">{time}</span> {L(a.name)}</button>)}
       </div>))}</div>
     <div className="cap">{t("«+» runs right after the previous one. Times follow daylight saving for the current week.")}</div>
     {events.length > 0 && <div className="stack" style={{ gap: 8 }}>
       <div className="eyebrow">{t("Not on a schedule: they start when something happens")}</div>
       <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>{events.map((a) =>
-        <button key={a.id} className="chip" onClick={() => onOpen(a.id)}>⚡ {L(a.name)}</button>)}</div>
+        <button key={a.id} className="chip" onClick={() => onOpen(a.id)} title={`${PLATFORM[a.platform].name} · ${L(a.short)}`}>⚡ {L(a.name)}</button>)}</div>
     </div>}
   </section>;
 }
 
 // ── the card ("ficha") ──
 
-function Sec({ title, children }: { title: string; children: ReactNode }) {
-  return <section className="ficha-sec"><h3 className="eyebrow">{title}</h3>{children}</section>;
-}
-
-const RISK: Record<Risk["level"], { cls: string; label: string }> = {
-  ok: { cls: "r-ok", label: "Handled" },
-  warn: { cls: "r-warn", label: "Watch" },
-  risk: { cls: "r-risk", label: "Risk" },
+const RISK: Record<Risk["level"], { cls: string; label: string; tip: string }> = {
+  ok: { cls: "r-ok", label: "Handled", tip: "The automation already handles this case." },
+  warn: { cls: "r-warn", label: "Watch", tip: "Not broken, but worth keeping an eye on." },
+  risk: { cls: "r-risk", label: "Risk", tip: "It can fail or do the wrong thing today. Found when reading the code." },
 };
 const EDGE_OUT: Record<Edge["kind"], string> = { feeds: "Sends students to", runs_before: "Runs before", data: "Affects data of", similar: "Similar to" };
 const EDGE_IN: Record<Edge["kind"], string> = { feeds: "Receives students from", runs_before: "Runs after", data: "Its data is affected by", similar: "Similar to" };
 
+type SecDef = { id: string; title: string; help: string; body: ReactNode };
+
 function Card({ a, onClose, onOpen }: { a: Automation; onClose: () => void; onOpen: (id: string) => void }) {
   const [tab, setTab] = useState<"card" | "diagram">("card");
+  const scroller = useRef<HTMLDivElement>(null);
+  const jumping = useRef<number | null>(null);
   const e = edgesOf(a.id);
+
+  const secs: SecDef[] = [
+    { id: "what", title: t("What it does"), help: t("The job it does, in plain words."), body: <p>{L(a.what)}</p> },
+    { id: "start", title: t("What starts it"), help: t("The schedule or the event that makes it run, and how to run it by hand."), body: <>
+      <div className="auto-meta"><ICal size={16} /><TriggerLine a={a} /></div>
+      {a.trigger.kind === "schedule" && a.trigger.schedule.tz === "UTC" && <div className="cap">{t("GitHub schedule: {time} UTC.", { time: a.trigger.schedule.time })}</div>}
+      {a.manual && <div className="cap"><b>{t("By hand:")}</b> {L(a.manual)}</div>}</> },
+    { id: "who", title: t("Who it affects"), help: t("The people it looks at each time it runs."), body: <ul className="ticks">{a.audience.map((x, i) => <li key={i}>{L(x)}</li>)}</ul> },
+    ...(a.rules ? [{ id: "rules", title: t("Rules"), help: t("How it decides what to do with each person. Read each row as «if this, then that». The tag is the label it leaves in Notion."), body:
+      <div className="tw"><table className="rules"><thead><tr><th>{t("If…")}</th><th>{t("Then…")}</th><th>{t("Tag")}</th></tr></thead>
+        <tbody>{a.rules.map((r, i) => <tr key={i}><td>{L(r.when)}</td><td>{L(r.then)}</td><td>{r.tag ? <code>{r.tag}</code> : "—"}</td></tr>)}</tbody></table></div> }] : []),
+    { id: "changes", title: t("What it changes"), help: t("The data it writes and the messages it sends."), body: <ul className="ticks">{a.writes.map((x, i) => <li key={i}>{L(x)}</li>)}</ul> },
+    { id: "fails", title: t("If something fails"), help: t("What happens when a step goes wrong. Hover each label to see what it means."), body:
+      <div className="stack" style={{ gap: 8 }}>{a.errors.map((r, i) => <div key={i} className={`risk ${RISK[r.level].cls}`}>
+        <Tip tip={t(RISK[r.level].tip)} focus><span className="risk-tag">{r.level === "ok" ? <ICheck size={14} /> : <IAlert size={14} />}{t(RISK[r.level].label)}</span></Tip>
+        <span>{L(r.text)}</span></div>)}</div> },
+    { id: "links", title: t("Connections"), help: t("Other automations that send it students, run before or after it, or touch the same data. Click one to open its card."), body:
+      e.out.length + e.inc.length === 0 ? <div className="cap">{t("It doesn't connect to other automations.")}</div> :
+        <div className="edges">
+          {e.out.map((x, i) => <EdgeRow key={`o${i}`} verb={t(EDGE_OUT[x.kind])} other={x.to} label={x.label} onOpen={onOpen} />)}
+          {e.inc.map((x, i) => <EdgeRow key={`i${i}`} verb={t(EDGE_IN[x.kind])} other={x.from} label={x.label} onOpen={onOpen} />)}
+        </div> },
+    ...(a.notes ? [{ id: "notes", title: t("Good to know"), help: t("Details and quirks found when reading the code."), body: <ul className="ticks">{a.notes.map((x, i) => <li key={i}>{L(x)}</li>)}</ul> }] : []),
+    { id: "where", title: t("Where it lives"), help: t("Where the code is, for whoever needs to change it."), body: <>
+      <div className="cap">{a.source.url ? <a href={a.source.url} target="_blank" rel="noopener noreferrer">{a.source.repo}</a> : a.source.repo}
+        {" · "}{a.source.files.map((f, i) => <span key={f}>{i > 0 && ", "}<code>{f}</code></span>)}</div>
+      <div className="cap">{t("Last run and live status: coming in phase 3.")}</div></> },
+  ];
+  const [active, setActive] = useState(secs[0].id);
+  const index = useRef<HTMLElement>(null);
+  // on narrow screens the index scrolls sideways: keep the current section's chip in view
+  useEffect(() => {
+    const nav = index.current, chip = nav?.querySelector<HTMLElement>("[aria-current]");
+    if (nav && chip) nav.scrollTo({ left: chip.offsetLeft - nav.clientWidth / 2 + chip.clientWidth / 2, behavior: "smooth" });
+  }, [active]);
+
+  // highlight the section being read; at the bottom, the last one
+  const onScroll = () => {
+    const el = scroller.current;
+    if (!el || tab !== "card" || jumping.current !== null) return;
+    const items = Array.from(el.querySelectorAll<HTMLElement>("[data-sec]"));
+    let cur = items[0]?.dataset.sec;
+    if (el.scrollTop + el.clientHeight >= el.scrollHeight - 4) cur = items[items.length - 1]?.dataset.sec;
+    else for (const it of items) if (it.offsetTop <= el.scrollTop + 40) cur = it.dataset.sec;
+    if (cur) setActive(cur);
+  };
+  const jump = (id: string) => {
+    const el = scroller.current;
+    const target = el?.querySelector<HTMLElement>(`[data-sec="${id}"]`);
+    if (!el || !target) return;
+    setActive(id);
+    if (jumping.current !== null) window.clearTimeout(jumping.current);
+    jumping.current = window.setTimeout(() => { jumping.current = null; }, 700);
+    el.scrollTo({ top: target.offsetTop - 4, behavior: "smooth" });
+  };
+  const switchTab = (k: "card" | "diagram") => { setTab(k); scroller.current?.scrollTo({ top: 0 }); };
+
   return <Modal title={L(a.name)} onClose={onClose} wide>
-    <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>{platformPill(a)}{a.channels.map((c) => <span key={c} className="pill pg">{t(CH[c])}</span>)}</div>
-    <p style={{ fontSize: 15 }}>{L(a.short)}</p>
-    <div className="tabs" role="tablist">
-      <button role="tab" aria-selected={tab === "card"} className={`tab ${tab === "card" ? "on" : ""}`} onClick={() => setTab("card")}>{t("Card")}</button>
-      <button role="tab" aria-selected={tab === "diagram"} className={`tab ${tab === "diagram" ? "on" : ""}`} onClick={() => setTab("diagram")}>{t("Diagram")}</button>
+    <div className="ficha-top">
+      <div className="ficha-where">
+        <span className="cap"><b>{t("Where it runs:")}</b></span>{platformPill(a, true)}
+        <span className="cap">{t("Sends:")}</span>{a.channels.map((c) => channelPill(c, true))}
+      </div>
+      <p className="ficha-short">{L(a.short)}</p>
+      <div className="tabs" role="tablist">
+        <button role="tab" aria-selected={tab === "card"} className={`tab ${tab === "card" ? "on" : ""}`} onClick={() => switchTab("card")}>{t("Card")}</button>
+        <button role="tab" aria-selected={tab === "diagram"} className={`tab ${tab === "diagram" ? "on" : ""}`} onClick={() => switchTab("diagram")}>{t("Diagram")}</button>
+      </div>
+      {tab === "card" ? <nav className="ficha-index" ref={index} aria-label={t("Sections")}>
+        {secs.map((s) => <button key={s.id} className={`chip ${active === s.id ? "on" : ""}`} aria-current={active === s.id ? "true" : undefined} onClick={() => jump(s.id)}>{s.title}</button>)}
+      </nav> : <div className="cap ficha-help">{t("Read it from top to bottom. Amber boxes are decisions: each branch shows what happens in that case. Blue boxes open another automation.")}</div>}
     </div>
-    {tab === "diagram" ? <Diagram nodes={a.diagram} onOpen={onOpen} /> : <div className="ficha">
-      <Sec title={t("What it does")}><p>{L(a.what)}</p></Sec>
-      <Sec title={t("What starts it")}>
-        <div className="auto-meta"><ICal size={16} /><TriggerLine a={a} /></div>
-        {a.trigger.kind === "schedule" && a.trigger.schedule.tz === "UTC" && <div className="cap">{t("GitHub schedule: {time} UTC.", { time: a.trigger.schedule.time })}</div>}
-        {a.manual && <div className="cap"><b>{t("By hand:")}</b> {L(a.manual)}</div>}
-      </Sec>
-      <Sec title={t("Who it affects")}><ul className="ticks">{a.audience.map((x, i) => <li key={i}>{L(x)}</li>)}</ul></Sec>
-      {a.rules && <Sec title={t("Rules")}>
-        <div className="tw"><table className="rules"><thead><tr><th>{t("If…")}</th><th>{t("Then…")}</th><th>{t("Tag")}</th></tr></thead>
-          <tbody>{a.rules.map((r, i) => <tr key={i}><td>{L(r.when)}</td><td>{L(r.then)}</td><td>{r.tag ? <code>{r.tag}</code> : "—"}</td></tr>)}</tbody></table></div>
-      </Sec>}
-      <Sec title={t("What it changes")}><ul className="ticks">{a.writes.map((x, i) => <li key={i}>{L(x)}</li>)}</ul></Sec>
-      <Sec title={t("If something fails")}>
-        <div className="stack" style={{ gap: 8 }}>{a.errors.map((r, i) => <div key={i} className={`risk ${RISK[r.level].cls}`}>
-          <span className="risk-tag">{r.level === "ok" ? <ICheck size={14} /> : <IAlert size={14} />}{t(RISK[r.level].label)}</span><span>{L(r.text)}</span></div>)}</div>
-      </Sec>
-      <Sec title={t("Connections")}>
-        {e.out.length + e.inc.length === 0 ? <div className="cap">{t("It doesn't connect to other automations.")}</div> :
-          <div className="stack" style={{ gap: 8 }}>
-            {e.out.map((x, i) => <EdgeRow key={`o${i}`} verb={t(EDGE_OUT[x.kind])} other={x.to} label={x.label} onOpen={onOpen} />)}
-            {e.inc.map((x, i) => <EdgeRow key={`i${i}`} verb={t(EDGE_IN[x.kind])} other={x.from} label={x.label} onOpen={onOpen} />)}
-          </div>}
-      </Sec>
-      {a.notes && <Sec title={t("Good to know")}><ul className="ticks">{a.notes.map((x, i) => <li key={i}>{L(x)}</li>)}</ul></Sec>}
-      <Sec title={t("Where it lives")}>
-        <div className="cap">{a.source.url ? <a href={a.source.url} target="_blank" rel="noopener noreferrer">{a.source.repo}</a> : a.source.repo}
-          {" · "}{a.source.files.map((f, i) => <span key={f}>{i > 0 && ", "}<code>{f}</code></span>)}</div>
-        <div className="cap">{t("Last run and live status: coming in phase 3.")}</div>
-      </Sec>
-    </div>}
+    <div className="ficha-scroll" ref={scroller} onScroll={onScroll}>
+      {tab === "diagram" ? <Diagram nodes={a.diagram} onOpen={onOpen} /> : <div className="ficha">
+        {secs.map((s) => <section key={s.id} className="ficha-sec" data-sec={s.id}>
+          <div><h3 className="eyebrow">{s.title}</h3><div className="cap sec-help">{s.help}</div></div>
+          {s.body}
+        </section>)}
+      </div>}
+    </div>
   </Modal>;
 }
 
 function EdgeRow({ verb, other, label, onOpen }: { verb: string; other: string; label: Tx; onOpen: (id: string) => void }) {
   const o = BY_ID[other];
-  return <div className="edge"><div><span className="cap">{verb}</span> <button className="linkbtn" onClick={() => onOpen(other)}>{L(o.name)}</button></div>
+  return <div className="edge"><div><span className="cap">{verb}</span> <button className="linkbtn" onClick={() => onOpen(other)}>{L(o.name)}</button>
+    {" "}<span className={`pill ${o.platform === "github" ? "pn" : "pb"} pill-sm`}>{PLATFORM[o.platform].name}</span></div>
     <div className="cap">{L(label)}</div></div>;
 }
 
@@ -250,7 +315,7 @@ function FNode({ n, onOpen }: { n: DNode; onOpen: (id: string) => void }) {
       <Flow nodes={b.nodes} onOpen={onOpen} />
     </div>)}</div>
   </div>;
-  if (n.t === "link") return <button className="fnode link" onClick={() => onOpen(n.to)}>
+  if (n.t === "link") return <button className="fnode link" onClick={() => onOpen(n.to)} title={t("Open its card")}>
     <span>{L(n.label)}</span><span className="fsub"><IArrow size={14} /> {L(BY_ID[n.to].name)}</span></button>;
   if (n.t === "step") return <div className="fnode step">{n.kind && <span className="fsub">{t(KIND_LABEL[n.kind])}</span>}{L(n.label)}</div>;
   return <div className={`fnode ${n.t}`}>{L(n.label)}</div>;

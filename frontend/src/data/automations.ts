@@ -725,12 +725,3 @@ export const EDGES: Edge[] = [
   { from: "state-events", to: "ac-sync", kind: "data", label: x("Lo que un aviso no logre enviar, se corrige de noche", "Whatever an event fails to send is fixed at night") },
   { from: "not-started", to: "daily", kind: "similar", label: x("Misma idea para Miami: la escalera Not Started (días 7, 15 y 30)", "Same idea for Miami: the Not Started ladder (days 7, 15 and 30)") },
 ];
-
-/** Groups shown in the overview "how they connect". */
-export const CHAINS: { title: Tx; ids: string[] }[] = [
-  { title: x("Seguimiento España (viernes)", "Spain follow-up (Friday)"), ids: ["not-started", "missing"] },
-  { title: x("Etapas que terminan en Missing", "Stages that end in Missing"), ids: ["stage1-2", "missing"] },
-  { title: x("Noche del Career Hub", "Career Hub night"), ids: ["notion-sync", "daily", "ac-sync"] },
-  { title: x("Semana de postulaciones", "Application week"), ids: ["friday-nudge", "weekly-check"] },
-  { title: x("Ofertas", "Jobs"), ids: ["jobs-ingest", "job-radar"] },
-];
