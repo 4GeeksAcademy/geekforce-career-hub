@@ -34,6 +34,7 @@ class User(TimestampMixin, Base):
     external_id: Mapped[str | None] = mapped_column(String(64), index=True)
     last_login_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     language: Mapped[str | None] = mapped_column(String(5))  # en | es; None = default (Spanish for LATAM/Spain cohorts)
+    archived_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))  # removed from lists, history kept
 
     student: Mapped["Student | None"] = relationship(
         back_populates="user", foreign_keys="Student.user_id", uselist=False
@@ -313,6 +314,7 @@ class Job(TimestampMixin, Base):
     url: Mapped[str | None] = mapped_column(String(1000))
     description: Mapped[str | None] = mapped_column(Text)
     program: Mapped[str | None] = mapped_column(String(30))  # full_stack | ai_engineering | data_science | cybersecurity
+    country: Mapped[str | None] = mapped_column(String(2), index=True)  # ISO code: US, ES, MX, CO, VE, AR…
     posted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     salary_min: Mapped[int | None] = mapped_column(Integer)
     salary_max: Mapped[int | None] = mapped_column(Integer)
@@ -429,3 +431,75 @@ class JobShareEvent(TimestampMixin, Base):
     actor_id: Mapped[str | None] = mapped_column(ForeignKey("users.id"))
     detail: Mapped[str | None] = mapped_column(Text)
     data: Mapped[dict | None] = mapped_column(JSON)
+
+
+
+class AutomationConnection(TimestampMixin, Base):
+    """An n8n instance the hub can read (workflows, executions) with an n8n API key."""
+    __tablename__ = "automation_connections"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    name: Mapped[str] = mapped_column(String(120))
+    kind: Mapped[str] = mapped_column(String(20), default="n8n")
+    base_url: Mapped[str] = mapped_column(String(500))
+    api_key: Mapped[str | None] = mapped_column(Text)  # never returned by the API
+    created_by: Mapped[str | None] = mapped_column(ForeignKey("users.id"))
+
+
+class Automation(TimestampMixin, Base):
+    """A workflow the hub knows about: run it from a button, fire it on hub events, and/or receive its results."""
+    __tablename__ = "automations"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    name: Mapped[str] = mapped_column(String(200))
+    description: Mapped[str | None] = mapped_column(Text)
+    category: Mapped[str | None] = mapped_column(String(60))
+    connection_id: Mapped[str | None] = mapped_column(ForeignKey("automation_connections.id", ondelete="SET NULL"))
+    n8n_workflow_id: Mapped[str | None] = mapped_column(String(64))
+    link: Mapped[str | None] = mapped_column(String(500))
+    webhook_url: Mapped[str | None] = mapped_column(String(1000))  # n8n Webhook node URL, for "Run" and events
+    secret: Mapped[str | None] = mapped_column(String(120))  # sent as X-GeekForce-Secret; also checks callbacks
+    events: Mapped[list | None] = mapped_column(JSON)  # hub events that fire it
+    scope: Mapped[str] = mapped_column(String(20), default="none")  # none | student | cohort | job
+    allow_advisors: Mapped[bool] = mapped_column(Boolean, default=False)
+    active: Mapped[bool] = mapped_column(Boolean, default=True)
+    schedule_note: Mapped[str | None] = mapped_column(String(200))  # e.g. "Daily 8:00 in n8n"
+    last_run_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    last_status: Mapped[str | None] = mapped_column(String(20))
+    created_by: Mapped[str | None] = mapped_column(ForeignKey("users.id"))
+
+
+class AutomationRun(TimestampMixin, Base):
+    __tablename__ = "automation_runs"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    automation_id: Mapped[str] = mapped_column(ForeignKey("automations.id", ondelete="CASCADE"), index=True)
+    source: Mapped[str] = mapped_column(String(20))  # manual | event | callback | test
+    status: Mapped[str] = mapped_column(String(20))  # ok | error | received
+    triggered_by: Mapped[str | None] = mapped_column(ForeignKey("users.id"))
+    event: Mapped[str | None] = mapped_column(String(60))
+    context: Mapped[dict | None] = mapped_column(JSON)  # who/what it ran for, params
+    http_status: Mapped[int | None] = mapped_column(Integer)
+    response: Mapped[str | None] = mapped_column(Text)
+    duration_ms: Mapped[int | None] = mapped_column(Integer)
+
+
+class Dashboard(TimestampMixin, Base):
+    __tablename__ = "dashboards"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    name: Mapped[str] = mapped_column(String(160))
+    description: Mapped[str | None] = mapped_column(String(500))
+    owner_id: Mapped[str | None] = mapped_column(ForeignKey("users.id"))
+    shared: Mapped[bool] = mapped_column(Boolean, default=False)  # visible to all staff
+    filters: Mapped[dict | None] = mapped_column(JSON)  # dashboard-wide filters (dates, cohort, advisor…)
+    position: Mapped[int] = mapped_column(Integer, default=0)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+    widgets: Mapped[list["DashboardWidget"]] = relationship(cascade="all, delete-orphan", passive_deletes=True)
+
+
+class DashboardWidget(TimestampMixin, Base):
+    __tablename__ = "dashboard_widgets"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    dashboard_id: Mapped[str] = mapped_column(ForeignKey("dashboards.id", ondelete="CASCADE"), index=True)
+    title: Mapped[str] = mapped_column(String(160))
+    config: Mapped[dict] = mapped_column(JSON)  # dataset, metric, group_by, series_by, chart, filters, limit
+    position: Mapped[int] = mapped_column(Integer, default=0)
+    width: Mapped[int] = mapped_column(Integer, default=2)  # columns out of 4

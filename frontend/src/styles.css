@@ -275,3 +275,4 @@ table.rules code,.ficha code{font-size:12px;background:var(--bg);padding:2px 6px
   .ficha-index{flex-wrap:nowrap;overflow-x:auto;scrollbar-width:none;margin:0 -4px;padding:0 4px}
   .ficha-index .chip{flex:none}
 }
+@media (max-width: 900px){.dash-grid{grid-template-columns:1fr !important}.dash-grid>section{grid-column:auto !important}}

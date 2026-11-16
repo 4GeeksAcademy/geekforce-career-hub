@@ -13,11 +13,13 @@ import { IPlus } from "../components/Icons";
 type Job = { id: string; source: string; title: string; company: string | null; location: string | null; work_mode: string | null;
   url: string | null; program: string | null; posted_at: string | null; found_at: string; salary_min: number | null; salary_max: number | null;
   contact_name: string | null; contact_handle: string | null; outreach_status: string; is_partner: boolean; notes: string | null;
-  shared_count: number; description: string | null; fits: number };
-type List = { items: Job[]; sources: Record<string, number>; programs: Record<string, string>; adzuna_connected: boolean; ingest_ready: boolean };
+  shared_count: number; description: string | null; fits: number; country: string | null };
+type List = { items: Job[]; sources: Record<string, number>; countries: Record<string, number>; programs: Record<string, string>; adzuna_connected: boolean; ingest_ready: boolean };
 type Fit = { id: string; name: string; initials: string; cohort: string | null; points: number; guarantee_status: string; stage: string | null; mine: boolean };
 
-const SOURCE: Record<string, string> = { adzuna: t("Adzuna"), grokbot: "grokbot · X", partner: t("Partner"), manual: t("Added by team"), x: "X" };
+const SOURCE: Record<string, string> = { adzuna: t("Adzuna"), grokbot: "grokbot · X", partner: t("Partner"), manual: t("Added by team"), x: "X", n8n: "n8n" };
+const COUNTRY: Record<string, string> = { US: t("United States"), ES: t("Spain"), MX: t("Mexico"), CO: t("Colombia"), VE: t("Venezuela"),
+  AR: t("Argentina"), CL: t("Chile"), PE: t("Peru"), UY: t("Uruguay"), CR: t("Costa Rica"), EC: t("Ecuador"), PA: t("Panama"), DO: t("Dominican Republic") };
 const OUTREACH: Record<string, string> = { none: t("Not contacted"), contacted: t("Contacted"), replied: t("Replied"), interviewing: t("Interviewing"), closed: t("Closed") };
 const PROG_DOT: Record<string, string> = { full_stack: "#2381FF", ai_engineering: "#0E1B2C", data_science: "#F5B93E", cybersecurity: "#E5484D" };
 
@@ -25,9 +27,10 @@ export default function JobRadar() {
   const { user } = useAuth();
   const [program, setProgram] = useState("");
   const [source, setSource] = useState("");
+  const [country, setCountry] = useState("");
   const [q, setQ] = useState("");
   const [days, setDays] = useState("7");
-  const params = new URLSearchParams({ days, ...(program && { program }), ...(source && { source }), ...(q && { q }) });
+  const params = new URLSearchParams({ days, ...(program && { program }), ...(source && { source }), ...(country && { country }), ...(q && { q }) });
   const list = useApi<List>(`/advisor/jobs?${params}`);
   const [picked, setPicked] = useState<{ job: Job; tab?: "shared" } | null>(null);
   const [adding, setAdding] = useState(false);
@@ -78,6 +81,8 @@ export default function JobRadar() {
           <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
             <label><span className="sr">{t("Source")}</span><select className="in" value={source} onChange={(e) => setSource(e.target.value)}>
               <option value="">{t("All sources")}</option>{Object.entries(SOURCE).map(([k, v]) => <option key={k} value={k}>{v}</option>)}</select></label>
+            <label><span className="sr">{t("Country")}</span><select className="in" value={country} onChange={(e) => setCountry(e.target.value)}>
+              <option value="">{t("All countries")}</option>{Object.entries(d?.countries || {}).map(([k, n]) => <option key={k} value={k}>{COUNTRY[k] || k} ({n})</option>)}</select></label>
             <label><span className="sr">{t("Period")}</span><select className="in" value={days} onChange={(e) => setDays(e.target.value)}>
               <option value="1">{t("Last 24 hours")}</option><option value="7">{t("Last 7 days")}</option><option value="14">{t("Last 14 days")}</option><option value="30">{t("Last 30 days")}</option></select></label>
             <label style={{ flex: "1 1 240px" }}><span className="sr">{t("Search")}</span><input className="in" type="search" placeholder={t("Title, company or city")} value={q} onChange={(e) => setQ(e.target.value)} /></label>
@@ -99,6 +104,7 @@ export default function JobRadar() {
                 <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
                   <span className="pill pb">{SOURCE[j.source] || j.source}</span>
                   {j.program && <span className="pill pg">{d.programs[j.program]}</span>}
+                  {j.country && <span className="pill pg">{COUNTRY[j.country] || j.country}</span>}
                   <span className="pill pg">{j.posted_at ? t("Posted {v0}", { v0: relTime(j.posted_at) }) : t("Found {v0}", { v0: relTime(j.found_at) })}</span>
                   {j.salary_min && <span className="pill pg">${Math.round(j.salary_min / 1000)}k{j.salary_max && j.salary_max !== j.salary_min ? `–${Math.round(j.salary_max / 1000)}k` : ""}</span>}
                   {j.shared_count > 0 && <button className="pill pa" style={{ border: "none", cursor: "pointer" }} onClick={() => setPicked({ job: j, tab: "shared" })}>{t("Shared with {n} · see responses", { n: j.shared_count })}</button>}

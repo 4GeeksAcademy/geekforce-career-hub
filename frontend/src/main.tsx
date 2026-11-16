@@ -23,6 +23,8 @@ import JobRadar from "./pages/JobRadar";
 import JobsForYou from "./pages/JobsForYou";
 import JobTracking from "./pages/JobTracking";
 import AuthCallback from "./pages/AuthCallback";
+import Dashboards from "./pages/Dashboards";
+import N8nWorkflows from "./pages/N8nWorkflows";
 const Automations = React.lazy(() => import("./pages/Automations"));  // big static catalog: load it only when opened
 import { AdminAudit, AdminPauses, AdminPeople, AdminRules } from "./pages/Admin";
 
@@ -63,6 +65,8 @@ function App() {
         <Route path="/staff/onboarding" element={<Onboarding />} />
         <Route path="/staff/jobs" element={<JobRadar />} />
         <Route path="/staff/jobs/shared" element={<JobTracking />} />
+        <Route path="/staff/dashboards" element={<Dashboards />} />
+        <Route path="/staff/automations" element={<N8nWorkflows />} />
         <Route path="/staff/resumes" element={<StaffResumes />} />
         <Route path="/staff/resumes/templates" element={<TemplateLibrary />} />
         <Route path="/staff/resumes/templates/:tid" element={<TemplateEditor />} />

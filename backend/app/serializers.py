@@ -91,7 +91,7 @@ def pause_dict(p: PauseRequest, st: Student | None = None, db: DB | None = None)
 def student_brief(st: Student) -> dict:
     c = st.cohort
     return {"id": st.id, "name": st.user.name, "email": st.user.email, "initials": initials(st.user.name),
-            "cohort": c.name if c else None, "program": c.program if c else None,
+            "cohort": c.name if c else None, "cohort_id": st.cohort_id, "program": c.program if c else None,
             "location": c.location if c else None, "region": c.region if c else None,
             "advisor": st.advisor.name if st.advisor else None, "advisor_id": st.advisor_id,
             "points": st.career_points, "guarantee_status": st.guarantee_status, "status": st.status,
