@@ -5,6 +5,7 @@ title + company within 14 days) is merged instead of duplicated.
 """
 import logging
 import re
+import time
 from datetime import datetime, timedelta
 from urllib.parse import urlsplit, urlunsplit
 
@@ -37,13 +38,38 @@ TITLE_SETS = {
                       "junior security engineer"],
 }
 
+# Same idea for Spanish-speaking markets (Adzuna es and mx). Kept short: every phrase is one API call per country.
+TITLE_SETS_ES = {
+    "full_stack": ["desarrollador junior", "programador junior", "desarrollador full stack", "desarrollador frontend junior"],
+    "ai_engineering": ["ingeniero inteligencia artificial", "machine learning junior", "ai engineer"],
+    "data_science": ["analista de datos junior", "cientifico de datos junior"],
+    "cybersecurity": ["analista soc", "ciberseguridad junior"],
+}
+SPANISH_COUNTRIES = {"es", "mx"}
+
+
+# Job country → student cohort region (Cohort.region: usa | latam | spain).
+def job_region(country: str | None) -> str | None:
+    c = (country or "").upper()
+    if not c:
+        return None
+    return {"US": "usa", "ES": "spain"}.get(c, "latam")
+
+
+def student_region(st: Student) -> str:
+    return ((st.cohort.region if st.cohort else None) or "usa").lower()
+
+
 _KEYWORDS = [  # (regex on title, program) — first match wins
-    (r"\b(ai|a\.i\.|llm|genai|machine learning|ml engineer|forward deployed|prompt)\b", "ai_engineering"),
-    (r"\b(data (analyst|scientist|engineer)|analytics|business intelligence|bi analyst|tableau|sql analyst)\b", "data_science"),
-    (r"\b(soc|security|cyber|siem|penetration|infosec|grc)\b", "cybersecurity"),
-    (r"\b(software|developer|engineer|frontend|front-end|backend|back-end|full ?stack|web|react|node|javascript|python developer)\b", "full_stack"),
+    (r"\b(ai|a\.i\.|ia|llm|genai|machine learning|ml engineer|forward deployed|prompt|inteligencia artificial)\b", "ai_engineering"),
+    (r"\b(data (analyst|scientist|engineer)|analytics|business intelligence|bi analyst|tableau|sql analyst"
+     r"|analista de datos|cient[ií]fico de datos|ingeniero de datos)\b", "data_science"),
+    (r"\b(soc|security|cyber|siem|penetration|infosec|grc|ciberseguridad)\b", "cybersecurity"),
+    (r"\b(software|developer|engineer|frontend|front-end|backend|back-end|full ?stack|web|react|node|javascript|python developer"
+     r"|desarrollador|desarrolladora|programador|programadora)\b", "full_stack"),
 ]
-SENIOR = re.compile(r"\b(senior|sr\.?|staff|principal|lead|manager|director|head of|architect|vp)\b", re.I)
+SENIOR = re.compile(r"\b(senior|s[eé]nior|sr\.?|staff|principal|lead|manager|director|directora|head of|architect|vp"
+                    r"|jefe|jefa|gerente)\b", re.I)
 
 
 def program_for_title(title: str) -> str | None:
@@ -184,8 +210,14 @@ def upsert(db: DB, source: str, data: dict) -> tuple[Job, bool]:
 
 # ── Adzuna ──
 
-def adzuna_rows(what: str, transport: httpx.BaseTransport | None = None, max_days_old: int = 1) -> list[dict]:
-    url = f"https://api.adzuna.com/v1/api/jobs/{settings.adzuna_country}/search/1"
+def adzuna_countries() -> list[str]:
+    raw = settings.adzuna_countries or settings.adzuna_country or "us"
+    return [c.strip().lower() for c in raw.split(",") if c.strip()]
+
+
+def adzuna_rows(what: str, transport: httpx.BaseTransport | None = None, max_days_old: int = 1,
+                country: str | None = None) -> list[dict]:
+    url = f"https://api.adzuna.com/v1/api/jobs/{country or settings.adzuna_country}/search/1"
     params = {"app_id": settings.adzuna_app_id, "app_key": settings.adzuna_app_key, "what": what,
               "max_days_old": max_days_old, "results_per_page": 50, "sort_by": "date", "content-type": "application/json"}
     with httpx.Client(timeout=30, transport=transport) as c:
@@ -194,13 +226,13 @@ def adzuna_rows(what: str, transport: httpx.BaseTransport | None = None, max_day
         return r.json().get("results", [])
 
 
-def from_adzuna(row: dict, program: str) -> dict:
+def from_adzuna(row: dict, program: str, country: str | None = None) -> dict:
     return {
         "external_id": str(row.get("id")), "title": row.get("title", "").replace("<strong>", "").replace("</strong>", ""),
         "company": (row.get("company") or {}).get("display_name"),
         "location": (row.get("location") or {}).get("display_name"), "url": row.get("redirect_url"),
         "description": row.get("description"), "posted_at": row.get("created"), "program": program,
-        "country": settings.adzuna_country,
+        "country": country or settings.adzuna_country,
         "salary_min": int(row["salary_min"]) if row.get("salary_min") else None,
         "salary_max": int(row["salary_max"]) if row.get("salary_max") else None,
     }
@@ -211,31 +243,41 @@ def sweep_adzuna(db: DB, transport: httpx.BaseTransport | None = None) -> dict:
         return {"ok": False, "error": "Adzuna isn't connected (set ADZUNA_APP_ID and ADZUNA_APP_KEY)."}
     found = created = skipped = 0
     errors = []
-    for program, phrases in TITLE_SETS.items():
-        for what in phrases:
-            try:
-                rows = adzuna_rows(what, transport)
-            except Exception as e:  # noqa: BLE001
-                errors.append(f"{what}: {e}")
-                continue
-            for row in rows:
-                found += 1
-                data = from_adzuna(row, program)
-                if SENIOR.search(data["title"] or ""):
-                    skipped += 1
+    by_country: dict[str, int] = {}
+    calls = 0
+    for country in adzuna_countries():
+        title_sets = TITLE_SETS_ES if country in SPANISH_COUNTRIES else TITLE_SETS
+        for program, phrases in title_sets.items():
+            for what in phrases:
+                if calls and transport is None:
+                    time.sleep(2.5)  # stay under Adzuna's 25 calls per minute
+                calls += 1
+                try:
+                    rows = adzuna_rows(what, transport, country=country)
+                except Exception as e:  # noqa: BLE001
+                    errors.append(f"{country} {what}: {e}")
                     continue
-                _, new = upsert(db, "adzuna", data)
-                created += int(new)
-            db.commit()
+                for row in rows:
+                    found += 1
+                    data = from_adzuna(row, program, country)
+                    if SENIOR.search(data["title"] or ""):
+                        skipped += 1
+                        continue
+                    _, new = upsert(db, "adzuna", data)
+                    created += int(new)
+                    by_country[country.upper()] = by_country.get(country.upper(), 0) + int(new)
+                db.commit()
     return {"ok": not errors or bool(found), "found": found, "created": created, "skipped_senior": skipped,
-            "errors": errors[:5]}
+            "created_by_country": by_country, "errors": errors[:5]}
 
 
 # ── matching ──
 
 def candidates(db: DB, job: Job, limit: int = 12) -> list[Student]:
-    """Students who could take this job: same program, actively searching, guarantee not suspended."""
+    """Students who could take this job: same program, same region (when the job has a country), actively searching,
+    guarantee not suspended."""
     rows = db.scalars(select(Student).where(Student.status == "active")).all()
+    region = job_region(job.country)
     out = []
     for st in rows:
         if st.guarantee_status == "suspended" or st.on_hold:
@@ -243,6 +285,8 @@ def candidates(db: DB, job: Job, limit: int = 12) -> list[Student]:
         if st.stage not in (None, "job_hunting", "interview_prep"):
             continue
         if job.program and student_program(st) != job.program:
+            continue
+        if region and student_region(st) != region:
             continue
         out.append(st)
     out.sort(key=lambda s: (s.stage != "job_hunting", -(s.career_points or 0)))
