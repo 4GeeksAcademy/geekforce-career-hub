@@ -5,7 +5,8 @@ from sqlalchemy import select
 
 from app import automations as A, events
 from app.auth import hash_password
-from app.models import (Application, AuditLog, Automation, AutomationRun, Job, JobShare, PointsEvent, Student, User)
+from app.models import (Application, AuditLog, Automation, AutomationRun, Interaction, Job, JobShare, OfferReport, PointsEvent,
+                        Student, User)
 from app.timeutil import now_utc
 
 from .conftest import auth
@@ -59,22 +60,63 @@ def test_remove_advisor_needs_reassign_then_archives(client, db, people):
     assert client.post(f"/api/v1/admin/users/{adv.id}/restore", headers=auth(adm)).json()["is_active"] is True
 
 
-def test_permanent_delete_only_without_history(client, db, people):
-    adm, st = people["admin"], people["student"]
-    db.add(PointsEvent(student_id=st.id, event_type="x", delta=1, applied_delta=1, balance_after=81, title="x"))
+def test_permanent_delete_student_with_history(client, db, people):
+    adm, st, su = people["admin"], people["student"], people["student_user"]
+    db.add(PointsEvent(student_id=st.id, event_type="x", delta=1, applied_delta=1, balance_after=81, title="x",
+                       created_by=people["advisor"].id))
+    app_ = Application(student_id=st.id, company="Acme", role="Dev")
+    db.add(app_)
+    db.flush()
+    db.add(OfferReport(student_id=st.id, application_id=app_.id, company="Acme", reported_by=su.id))
+    db.add(Interaction(student_id=st.id, advisor_id=people["advisor"].id, occurred_at=now_utc(), channel="call", summary="hi"))
+    db.add(AuditLog(actor_id=su.id, student_id=st.id, action="x", detail="x"))
     db.commit()
-    r = client.post(f"/api/v1/admin/users/{people['student_user'].id}/remove", json={"permanent": True}, headers=auth(adm))
-    assert r.status_code == 422 and "archived" in r.json()["detail"]
+    sid, suid = st.id, su.id
+    r = client.post(f"/api/v1/admin/users/{suid}/remove", json={"permanent": True}, headers=auth(adm))
+    assert r.status_code == 200, r.text
+    db.expunge_all()
+    assert db.get(User, suid) is None and db.get(Student, sid) is None
+    assert not db.scalars(select(PointsEvent).where(PointsEvent.student_id == sid)).all()
+    assert not db.scalars(select(Application).where(Application.student_id == sid)).all()
+    assert not db.scalars(select(OfferReport)).all()
+    log = db.scalar(select(AuditLog).where(AuditLog.action == "user_deleted"))
+    assert "stu@test.io" in log.detail and "applications" in log.detail
+    # the advisor is untouched
+    assert db.get(User, people["advisor"].id)
+
+
+def test_permanent_delete_staff_keeps_other_students_records(client, db, people):
+    adm, adv, st = people["admin"], people["advisor"], people["student"]
+    db.add(PointsEvent(student_id=st.id, event_type="x", delta=1, applied_delta=1, balance_after=81, title="x", created_by=adv.id))
+    db.add(OfferReport(student_id=st.id, company="Acme", reported_by=adv.id))
+    db.add(Interaction(student_id=st.id, advisor_id=adv.id, occurred_at=now_utc(), channel="call", summary="hi"))
+    db.add(AuditLog(actor_id=adv.id, student_id=st.id, action="x", detail="x"))
+    db.commit()
+    advid, admid, sid = adv.id, adm.id, st.id
+    # still has to hand over their students first
+    assert client.post(f"/api/v1/admin/users/{advid}/remove", json={"permanent": True}, headers=auth(adm)).status_code == 422
+    r = client.post(f"/api/v1/admin/users/{advid}/remove", json={"permanent": True, "reassign_to": admid}, headers=auth(adm))
+    assert r.status_code == 200, r.text
+    db.expunge_all()
+    assert db.get(User, advid) is None
+    assert db.get(Student, sid).advisor_id == admid
+    assert db.scalar(select(PointsEvent).where(PointsEvent.student_id == sid)).created_by is None
+    assert db.scalar(select(OfferReport)).reported_by == admid
+    assert db.scalar(select(Interaction)).advisor_id is None
+    assert db.scalar(select(AuditLog).where(AuditLog.action == "x")).actor_id is None
+
+
+def test_permanent_delete_from_removed_list(client, db, people):
+    adm = people["admin"]
     nu = User(email="new@test.io", name="Typo Person", role="advisor", password_hash=hash_password("secret123"))
     db.add(nu)
     db.commit()
-    assert client.get(f"/api/v1/admin/users/{nu.id}", headers=auth(adm)).json()["history"]["sessions_led"] == 0
     nid = nu.id
+    assert client.post(f"/api/v1/admin/users/{nid}/remove", json={}, headers=auth(adm)).json()["archived"]
     r = client.post(f"/api/v1/admin/users/{nid}/remove", json={"permanent": True}, headers=auth(adm))
     assert r.status_code == 200 and r.json()["deleted"]
     db.expunge_all()
     assert db.get(User, nid) is None
-    assert db.scalar(select(AuditLog).where(AuditLog.action == "user_deleted"))
 
 
 # ── automations ──

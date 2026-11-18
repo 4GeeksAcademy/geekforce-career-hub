@@ -145,7 +145,8 @@ export function AdminPeople() {
                 <td className="num">{u.student?.points ?? "—"}</td>
                 <td className="cap">{showArchived ? (u.archived_at ? fmtDate(u.archived_at) : "—") : u.last_login_at ? relTime(u.last_login_at) : t("Never")}</td>
                 <td style={{ whiteSpace: "nowrap", textAlign: "right" }}>{showArchived
-                  ? <button className="btn bg sm" onClick={() => restore(u)}>{t("Restore")}</button>
+                  ? <><button className="btn bg sm" onClick={() => restore(u)}>{t("Restore")}</button>{" "}
+                    <button className="btn bd sm" onClick={() => setRemoving(u)}>{t("Delete for good")}</button></>
                   : <><button className="btn bg sm" onClick={() => setEditing(u)}>{t("Edit")}</button>{" "}
                     {u.id !== me?.id && <button className="btn bd sm" onClick={() => setRemoving(u)}>{t("Remove")}</button>}</>}</td></tr>))}</tbody></table></div>}
         </section>
@@ -206,7 +207,8 @@ const HISTORY_LABEL: Record<string, string> = { students_advised: "students advi
 
 function RemovePerson({ u, advisors, onClose, onDone }: { u: UserRow; advisors: UserRow[]; onClose: () => void; onDone: (m: string) => void }) {
   const detail = useApi<UserRow & { history: History }>(`/admin/users/${u.id}`);
-  const [mode, setMode] = useState<"archive" | "delete">("archive");
+  const archived = !!u.archived_at;
+  const [mode, setMode] = useState<"archive" | "delete">(archived ? "delete" : "archive");
   const [reassign, setReassign] = useState("");
   const [reason, setReason] = useState("");
   const [confirm, setConfirm] = useState("");
@@ -223,15 +225,19 @@ function RemovePerson({ u, advisors, onClose, onDone }: { u: UserRow; advisors: 
       onDone(r.deleted ? t("{name} deleted", { name: u.name }) : t("{name} removed. You can restore them from “Show removed”.", { name: u.name }));
     } catch (e) { setErr(e); } finally { setBusy(false); }
   };
-  if (detail.loading) return <Modal title={t("Remove {name}", { name: u.name })} onClose={onClose}><Spinner /></Modal>;
+  const title = archived ? t("Delete {name}", { name: u.name }) : t("Remove {name}", { name: u.name });
+  if (detail.loading) return <Modal title={title} onClose={onClose}><Spinner /></Modal>;
   const facts = Object.entries(h).filter(([, v]) => v > 0).map(([k, v]) => `${v} ${t(HISTORY_LABEL[k] || k)}`);
-  return <Modal title={t("Remove {name}", { name: u.name })} onClose={onClose}>
+  return <Modal title={title} onClose={onClose}>
     <form className="stack" onSubmit={submit}>
       <div className="cap">{facts.length ? t("Linked to this account: {facts}.", { facts: facts.join(", ") }) : t("This account has no history yet.")}</div>
-      <label style={{ display: "flex", gap: 8, alignItems: "flex-start" }}><input type="radio" name="rm" checked={mode === "archive"} onChange={() => setMode("archive")} />
-        <span><strong>{t("Remove from the lists (recommended)")}</strong><div className="cap">{t("They can't sign in and disappear from lists and dashboards filters. Their history stays, and you can restore them any time.")}</div></span></label>
-      <label style={{ display: "flex", gap: 8, alignItems: "flex-start", opacity: hasHistory ? .5 : 1 }}><input type="radio" name="rm" disabled={hasHistory} checked={mode === "delete"} onChange={() => setMode("delete")} />
-        <span><strong>{t("Delete for good")}</strong><div className="cap">{hasHistory ? t("Not available: this person has history. Remove them from the lists instead.") : t("For accounts created by mistake. This can't be undone.")}</div></span></label>
+      {!archived && <label style={{ display: "flex", gap: 8, alignItems: "flex-start" }}><input type="radio" name="rm" checked={mode === "archive"} onChange={() => setMode("archive")} />
+        <span><strong>{t("Remove from the lists (recommended)")}</strong><div className="cap">{t("They can't sign in and disappear from lists and dashboards filters. Their history stays, and you can restore them any time.")}</div></span></label>}
+      <label style={{ display: "flex", gap: 8, alignItems: "flex-start" }}><input type="radio" name="rm" checked={mode === "delete"} onChange={() => setMode("delete")} />
+        <span><strong>{t("Delete for good")}</strong><div className="cap">{t("The account is erased and can't be restored. Their email becomes free to use again.")}</div></span></label>
+      {mode === "delete" && hasHistory && <div className="cap" style={{ color: "var(--red-ink)" }}>{u.role === "student"
+        ? t("This also erases their points, applications, sessions, resumes and notes. It can't be undone.")
+        : t("Records they created about students (points, notes, sessions) stay, without their name. It can't be undone.")}</div>}
       {advised > 0 && <div><label className="lb" htmlFor="rr">{t("Who takes over their {n} student(s)?", { n: advised })}</label>
         <select className="in" id="rr" required value={reassign} onChange={(e) => setReassign(e.target.value)}>
           <option value="">{t("Choose…")}</option>{others.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}</select></div>}
