@@ -253,6 +253,35 @@ def update_user(uid: str, body: UserPatch, user: User = Depends(require_admin), 
     return user_dict(u)
 
 
+# Rows that belong to a user and go with them. Any other required link to a deleted user (an offer report they
+# filed, a resume comment they wrote) is handed to the admin doing the delete, so other students' records stay.
+_OWNED_BY_USER = {"students", "notifications", "notification_preferences", "ai_usage"}
+
+
+def _purge(db: Session, table, ids: list, actor_id: str) -> None:
+    """Delete rows of `table` with these ids and everything that depends on them.
+    Optional links are cleared; required links to a student are deleted with the student; required links to a
+    user are deleted if the row belongs to the user, otherwise handed to `actor_id`."""
+    from sqlalchemy import delete as sa_delete, update as sa_update
+    from ..db import Base
+    if not ids:
+        return
+    pk = next(iter(table.primary_key.columns))
+    for t in Base.metadata.sorted_tables:
+        for fk in t.foreign_keys:
+            if fk.column.table is not table:
+                continue
+            col = fk.parent
+            if col.nullable:
+                db.execute(sa_update(t).where(col.in_(ids)).values({col.name: None}))
+            elif table.name == "users" and t.name not in _OWNED_BY_USER:
+                db.execute(sa_update(t).where(col.in_(ids)).values({col.name: actor_id}))
+            else:
+                child_pk = next(iter(t.primary_key.columns))
+                _purge(db, t, list(db.scalars(select(child_pk).where(col.in_(ids)))), actor_id)
+    db.execute(sa_delete(table).where(pk.in_(ids)))
+
+
 class RemoveIn(BaseModel):
     permanent: bool = False
     reassign_to: str | None = None  # advisor's students go to this advisor
@@ -262,7 +291,8 @@ class RemoveIn(BaseModel):
 @router.post("/users/{uid}/remove")
 def remove_user(uid: str, body: RemoveIn, user: User = Depends(require_admin), db: Session = Depends(get_db)):
     """Remove someone from the lists. By default the account is archived (can't sign in, history kept, restorable).
-    permanent=true deletes it, only when there is no history attached."""
+    permanent=true deletes the account for good, with the student's records (points, applications, sessions,
+    resumes, notes). Records they created about other people stay; see _purge."""
     u = db.get(User, uid)
     if not u:
         raise HTTPException(404, "Not found")
@@ -277,29 +307,24 @@ def remove_user(uid: str, body: RemoveIn, user: User = Depends(require_admin), d
             raise HTTPException(422, L("{name} advises {n} student(s). Choose who takes them over.", name=u.name, n=len(advised)))
         for st in advised:
             st.advisor_id = to.id
-    name = u.name
+    name, email, role = u.name, u.email, u.role
     if body.permanent:
         h = _history(db, u)
         h.pop("students_advised", None)
-        if any(h.values()):
-            raise HTTPException(422, "This person has history (points, applications, sessions or notes), so they can "
-                                     "only be archived. Archiving keeps the records and blocks sign-in.")
-        from sqlalchemy import delete as sa_delete
+        db.flush()  # write the reassignment above before the bulk statements run
+        uid_, actor_id = u.id, user.id
+        db.expunge_all()  # rows are removed with bulk statements; drop stale ORM copies
         from sqlalchemy.exc import IntegrityError
-        from ..models import NotificationPreference
         try:
             with db.begin_nested():
-                db.execute(sa_delete(Notification).where(Notification.user_id == u.id))
-                db.execute(sa_delete(NotificationPreference).where(NotificationPreference.user_id == u.id))
-                if u.student:
-                    db.delete(u.student)
-                    db.flush()
-                db.delete(u)
-                db.flush()
+                _purge(db, User.__table__, [uid_], actor_id=actor_id)
         except IntegrityError:
-            raise HTTPException(422, "This person still has records linked to them, so they can only be archived. "
-                                     "Archiving keeps the records and blocks sign-in.")
-        db.add(AuditLog(actor_id=user.id, action="user_deleted", detail=f"{name}" + (f" · {body.reason}" if body.reason else "")))
+            raise HTTPException(422, "Something still points to this account, so it couldn't be deleted. "
+                                     "Remove them from the lists instead and tell the developer.")
+        lost = ", ".join(f"{v} {k.replace('_', ' ')}" for k, v in h.items() if v)
+        db.add(AuditLog(actor_id=actor_id, action="user_deleted",
+                        detail=f"{name} ({email}, {role})" + (f" · deleted with {lost}" if lost else "") +
+                               (f" · {body.reason}" if body.reason else "")))
         db.commit()
         return {"ok": True, "deleted": True}
     u.is_active, u.archived_at = False, now_utc()
