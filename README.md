@@ -57,7 +57,10 @@ SEED_DEMO=true uvicorn app.main:app --reload --port 8000
 cd frontend && npm install && npm run dev   # http://localhost:5173
 ```
 
-Demo accounts (only with `SEED_DEMO=true`), password `geekforce-demo`:
+**Sign-in is 4Geeks only** (hosted login with email and password, or GitHub). See [Sign in with 4Geeks](#sign-in-with-4geeks).
+To try the demo accounts locally, also set `DEV_PASSWORD_LOGIN=true`: the login page then shows a small developer form.
+
+Demo accounts (only with `SEED_DEMO=true` + `DEV_PASSWORD_LOGIN=true`), password `geekforce-demo`:
 `maria@geekforce.demo` (student, at risk) · `valentina@geekforce.demo` (advisor) · `admin@geekforce.demo` (admin).
 
 Tests: `cd backend && python -m pytest -q` (36 tests, at least one per Policy rule, plus the Notion sync against a simulated API). They need a Postgres database; set it with `TEST_DATABASE_URL`.
@@ -68,7 +71,7 @@ API docs: `http://localhost:8000/api/docs`.
 
 1. New project → **Deploy from GitHub repo** → `4GeeksAcademy/geekforce-career-hub`. Railway uses the `Dockerfile` and `railway.json`.
 2. Add a **PostgreSQL** service, then on the app service set `DATABASE_URL=${{Postgres.DATABASE_URL}}`.
-3. Set the variables from `.env.example`. At minimum: `JWT_SECRET`, `APP_URL`, `ENABLE_SCHEDULER=true`, `INITIAL_ADMIN_EMAIL`, `INITIAL_ADMIN_PASSWORD`. Add `BREVO_API_KEY`, `ANTHROPIC_API_KEY` and `NOTION_TOKEN` when ready.
+3. Set the variables from `.env.example`. At minimum: `JWT_SECRET` (at least 32 random characters, e.g. `python -c "import secrets; print(secrets.token_urlsafe(48))"`; the API refuses to start without it), `APP_URL`, `ENABLE_SCHEDULER=true`, `INITIAL_ADMIN_EMAIL` (the email of the admin's 4Geeks account). Keep `DEV_PASSWORD_LOGIN` unset. Add `BREVO_API_KEY`, `ANTHROPIC_API_KEY` and `NOTION_TOKEN` when ready.
    - Advisor accounts must use the **same names as the Notion "Advisor" options** (e.g. "Valentina Ancieta", "Fabiana Pereira") so synced students get assigned automatically.
 4. Generate a domain. Migrations run on every deploy (`backend/start.sh`).
 
@@ -83,6 +86,23 @@ Keep `numReplicas` at 1 while `ENABLE_SCHEDULER=true`. When scaling out, turn th
 How it works: it remembers the job you're viewing, watches for the confirmation ("Your application was sent", Greenhouse/Lever thank-you pages, Indeed post-apply), then posts it to the API (+3 points) and shows a confirmation. If the request fails, it queues the application and retries every 5 minutes. The same job within 24h is never counted twice. Students sign in from the popup, or automatically when they sign in on the website.
 
 Job boards change their markup often. Selectors live in `extension/sites.js`, with fallbacks for each site.
+
+## Sign in with 4Geeks
+
+There is no Career Hub password. Following the Breathcode skills in `.agents/skills` (`bc-authenticate-student-authentication`):
+
+1. The login page sends the browser to the 4Geeks hosted login, `{BREATHCODE_API_URL}/v1/auth/view/login?url=<APP>/auth/callback`, or to `/v1/auth/github/?url=…` for GitHub.
+2. 4Geeks redirects back to `/auth/callback?token=<4Geeks token>`. The page removes the token from the address bar and sends it to `POST /api/v1/auth/breathcode`.
+3. The API validates it with `GET /v1/auth/user/me` and matches the person by 4Geeks id, then by email. **Accounts are never created at sign-in**: students come from the Notion roster and staff are added by an admin, so the email on Career Hub must be the one they use on 4Geeks.
+4. The API returns the usual Career Hub JWT. The Chrome extension picks it up from the website as before.
+
+**Callback domains.** 4Geeks documents that it only redirects back to `https` URLs on `4geeks.com`, `4geeksacademy.com`, `learnpack.co` (or its own hosts). Today the API still accepts other hosts, but when that check is enforced the Railway domain will stop working. Plan a custom domain such as `careerhub.4geeksacademy.com` and point `APP_URL` and the extension's `DEFAULT_HUB_URL` at it.
+
+Re-sync the skills with `npx sync-bc-skills -y`.
+
+## Automations page
+
+**Manage → Automations** (admins and advisors, read-only) explains every automation of the area: GitHub Actions flows from `4GAES/GF_Automations` and the Career Hub's own jobs. Content lives in `frontend/src/data/automations.ts`. See [docs/AUTOMATIONS.md](docs/AUTOMATIONS.md).
 
 ## Integrating with the 4Geeks platform
 

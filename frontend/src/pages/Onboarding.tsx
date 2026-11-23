@@ -77,7 +77,7 @@ export default function Onboarding() {
       {activating && <Activate s={activating} onClose={() => setActivating(null)} onDone={(c) => { setActivating(null); setCreds(c); toast(t("Student activated")); list.reload(); }} />}
       {adding && <AddStudent onClose={() => setAdding(false)} onDone={(c) => { setAdding(false); setCreds(c); toast(t("Student added")); }} />}
       {creds && <Modal title={t("Invitation sent")} onClose={() => setCreds(null)}>
-        <div className="ok">{creds.email} {t("gets an email with a link to choose their password. The link works once, for 7 days.")}</div>
+        <div className="ok">{creds.email} {t("gets an email inviting them to sign in with their 4Geeks account (same email).")}</div>
         {creds.link && <div><div className="lb">{t("Share it directly if the email doesn't arrive")}</div>
           <div style={{ display: "flex", gap: 8 }}><input className="in" readOnly value={creds.link} onFocus={(e) => e.target.select()} />
             <button className="btn bg" onClick={() => { navigator.clipboard?.writeText(creds.link!); toast(t("Link copied")); }}>{t("Copy")}</button></div></div>}

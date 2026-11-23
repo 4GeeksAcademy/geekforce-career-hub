@@ -55,8 +55,8 @@ def test_remove_advisor_needs_reassign_then_archives(client, db, people):
     assert adv.id not in ids
     arch = [x["id"] for x in client.get("/api/v1/admin/users?archived=true", headers=auth(adm)).json()]
     assert adv.id in arch
-    # archived people can't sign in
-    assert client.post("/api/v1/auth/login", json={"email": "adv@test.io", "password": "secret123"}).status_code in (401, 403)
+    # archived people can't use the hub (their session is rejected)
+    assert client.get("/api/v1/auth/me", headers=auth(u)).status_code == 401
     assert client.post(f"/api/v1/admin/users/{adv.id}/restore", headers=auth(adm)).json()["is_active"] is True
 
 

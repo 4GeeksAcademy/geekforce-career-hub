@@ -17,14 +17,16 @@ DEMO_PASSWORD = "geekforce-demo"
 
 
 def ensure_initial_admin(db: DB):
+    """The first admin signs in with the 4Geeks account that uses INITIAL_ADMIN_EMAIL.
+    INITIAL_ADMIN_PASSWORD is optional and only works with DEV_PASSWORD_LOGIN (local development)."""
     email = os.getenv("INITIAL_ADMIN_EMAIL")
     password = os.getenv("INITIAL_ADMIN_PASSWORD")
-    if not email or not password:
+    if not email:
         return
     if db.scalar(select(User).where(func.lower(User.email) == email.lower())):
         return
     db.add(User(email=email.lower(), name=os.getenv("INITIAL_ADMIN_NAME", "GeekForce Admin"), role="admin",
-                password_hash=hash_password(password)))
+                password_hash=hash_password(password) if password else None))
     db.commit()
     log.info("Created initial admin %s", email)
 

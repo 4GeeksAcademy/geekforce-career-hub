@@ -86,18 +86,6 @@ chrome.runtime.onMessage.addListener((msg, _sender, reply) => {
       await updateBadge();
       return reply({ ok: true });
     }
-    if (msg.type === "login") {
-      const { base } = await hub();
-      try {
-        const res = await fetch(`${base}/api/v1/auth/login`, { method: "POST", headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ email: msg.email, password: msg.password }) });
-        const body = await res.json();
-        if (!res.ok) return reply({ ok: false, error: body.detail || "Wrong email or password" });
-        await set({ token: body.token, user: body.user });
-        await flushQueue(); await updateBadge();
-        return reply({ ok: true, user: body.user });
-      } catch (_) { return reply({ ok: false, error: "Can't reach Career Hub. Check the address in Settings." }); }
-    }
     if (msg.type === "logout") { await set({ token: null, user: null }); await updateBadge(); return reply({ ok: true }); }
     if (msg.type === "summary") {
       const r = await api("/students/me/dashboard").catch(() => ({ status: 0 }));

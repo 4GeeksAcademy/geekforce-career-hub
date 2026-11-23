@@ -22,9 +22,10 @@ import { TemplateEditor, TemplateLibrary } from "./pages/ResumeTemplates";
 import JobRadar from "./pages/JobRadar";
 import JobsForYou from "./pages/JobsForYou";
 import JobTracking from "./pages/JobTracking";
+import AuthCallback from "./pages/AuthCallback";
 import Dashboards from "./pages/Dashboards";
-import Automations from "./pages/Automations";
-import SetPassword from "./pages/SetPassword";
+import N8nWorkflows from "./pages/N8nWorkflows";
+const Automations = React.lazy(() => import("./pages/Automations"));  // big static catalog: load it only when opened
 import { AdminAudit, AdminPauses, AdminPeople, AdminRules } from "./pages/Admin";
 
 function Guard({ staff, children }: { staff?: boolean; children: React.ReactNode }) {
@@ -46,7 +47,8 @@ function App() {
   return (
     <Routes>
       <Route path="/login" element={<Login />} />
-      <Route path="/set-password" element={<SetPassword />} />
+      <Route path="/auth/callback" element={<AuthCallback />} />
+      <Route path="/set-password" element={<Navigate to="/login" replace />} />
       <Route element={<Guard><StudentLayout /></Guard>}>
         <Route path="/" element={<Dashboard />} />
         <Route path="/tracker" element={<Tracker />} />
@@ -64,7 +66,7 @@ function App() {
         <Route path="/staff/jobs" element={<JobRadar />} />
         <Route path="/staff/jobs/shared" element={<JobTracking />} />
         <Route path="/staff/dashboards" element={<Dashboards />} />
-        <Route path="/staff/automations" element={<Automations />} />
+        <Route path="/staff/automations" element={<N8nWorkflows />} />
         <Route path="/staff/resumes" element={<StaffResumes />} />
         <Route path="/staff/resumes/templates" element={<TemplateLibrary />} />
         <Route path="/staff/resumes/templates/:tid" element={<TemplateEditor />} />
@@ -73,6 +75,7 @@ function App() {
         <Route path="/admin/rules" element={<AdminRules />} />
         <Route path="/admin/people" element={<AdminPeople />} />
         <Route path="/admin/audit" element={<AdminAudit />} />
+        <Route path="/admin/automations" element={<React.Suspense fallback={<Spinner />}><Automations /></React.Suspense>} />
       </Route>
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>);

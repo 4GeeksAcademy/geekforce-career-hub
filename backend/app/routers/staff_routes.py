@@ -405,20 +405,19 @@ def decline(pid: str, body: DecisionIn, user: User = Depends(require_staff), db:
 # ── onboarding (students synced from Notion or added manually, waiting for a starting balance) ──
 
 def _invite(db: Session, st: Student, advisor: User) -> str:
-    """Send the student a single-use 'set your password' link (ActiveCampaign tag GF Invite, Brevo as fallback).
-    Returns the link so the advisor can also share it directly."""
-    from ..auth import create_password_link_token
+    """Tell the student their Hub is ready and to sign in with their 4Geeks account (ActiveCampaign tag GF Invite,
+    Brevo as fallback). Returns the sign-in link so the advisor can also share it directly."""
     from ..config import settings
     from ..services import activecampaign as ac
     from ..services.brevo import send_email
     u = st.user
-    link = f"{settings.app_url.rstrip('/')}/set-password?token={create_password_link_token(u)}"
+    link = f"{settings.app_url.rstrip('/')}/login"
     if ac.configured():
         ac.send_invite(u.email, u.name, link, ac.student_fields(st))
     else:
         body = (f"Hi {u.name.split()[0]},\n\nYour GeekForce Career Hub is ready. Track every application, see your career "
                 f"points and Job Guarantee status, and get your homework from {advisor.name}.\n\n"
-                f"Choose your password here (the link works once, for 7 days):\n{link}\n\n"
+                f"Sign in here with your 4Geeks account ({u.email}), using your email and password or GitHub:\n{link}\n\n"
                 "Then install the GeekForce Chrome extension so your applications log themselves (+3 points each).")
         send_email(u.email, u.name, "Your GeekForce Career Hub is ready", "Welcome to GeekForce Career Hub", body,
                    "info", link)

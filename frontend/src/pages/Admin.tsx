@@ -165,7 +165,7 @@ export function AdminPeople() {
 
 function EditPerson({ u, me, cohorts, advisors, onClose, onDone }: { u: UserRow; me?: string; cohorts: Cohort[]; advisors: UserRow[]; onClose: () => void; onDone: (m: string) => void }) {
   const [f, setF] = useState({ name: u.name, email: u.email, role: u.role, is_active: u.is_active,
-    cohort_id: u.student?.cohort_id || "", advisor_id: u.student?.advisor_id || "", password: "" });
+    cohort_id: u.student?.cohort_id || "", advisor_id: u.student?.advisor_id || "" });
   const [err, setErr] = useState<unknown>(null);
   const [busy, setBusy] = useState(false);
   const staff = u.role !== "student";
@@ -175,7 +175,6 @@ function EditPerson({ u, me, cohorts, advisors, onClose, onDone }: { u: UserRow;
       const body: Record<string, unknown> = { name: f.name, email: f.email, is_active: f.is_active };
       if (staff) body.role = f.role;
       else { body.cohort_id = f.cohort_id || null; body.advisor_id = f.advisor_id || null; }
-      if (f.password) body.password = f.password;
       await api.patch(`/admin/users/${u.id}`, body);
       onDone(t("{name} updated", { name: f.name }));
     } catch (e) { setErr(e); } finally { setBusy(false); }
@@ -195,7 +194,6 @@ function EditPerson({ u, me, cohorts, advisors, onClose, onDone }: { u: UserRow;
           <div><label className="lb" htmlFor="ea">{t("Advisor")}</label><select className="in" id="ea" value={f.advisor_id} onChange={(e) => setF({ ...f, advisor_id: e.target.value })}>
             <option value="">{t("No advisor")}</option>{advisors.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}</select></div>
         </>}
-      <div><label className="lb" htmlFor="ep">{t("New password (optional)")}</label><input className="in" id="ep" type="text" autoComplete="off" value={f.password} placeholder={t("Leave empty to keep the current one")} onChange={(e) => setF({ ...f, password: e.target.value })} /></div>
       {u.id !== me && <label style={{ display: "flex", gap: 8, alignItems: "center" }}><input type="checkbox" checked={f.is_active} onChange={(e) => setF({ ...f, is_active: e.target.checked })} />{t("Can sign in")}</label>}
       <ErrorBox error={err} />
       <button className="btn bp" disabled={busy}>{t("Save changes")}</button>
@@ -250,21 +248,20 @@ function RemovePerson({ u, advisors, onClose, onDone }: { u: UserRow; advisors: 
 }
 
 function AddPerson({ cohorts, advisors, onClose, onDone }: { cohorts: Cohort[]; advisors: UserRow[]; onClose: () => void; onDone: (m: string) => void }) {
-  const [f, setF] = useState({ name: "", email: "", role: "student", cohort_id: "", advisor_id: "", job_search_start_date: "", password: "" });
+  const [f, setF] = useState({ name: "", email: "", role: "student", cohort_id: "", advisor_id: "", job_search_start_date: "" });
   const [err, setErr] = useState<unknown>(null);
-  const [created, setCreated] = useState<{ email: string; temporary_password: string | null } | null>(null);
+  const [created, setCreated] = useState<{ email: string } | null>(null);
   const submit = async (e: FormEvent) => {
     e.preventDefault(); setErr(null);
     try {
       const body = Object.fromEntries(Object.entries(f).filter(([, v]) => v !== ""));
-      const r = await api.post<{ email: string; temporary_password: string | null }>("/admin/users", body);
+      const r = await api.post<{ email: string }>("/admin/users", body);
       setCreated(r); onDone(t("{name} added", { name: f.name }));
     } catch (e) { setErr(e); }
   };
   if (created) return <Modal title={t("Account created")} onClose={onClose}>
-    <div className="ok">{t("Share these sign-in details with the person privately. They can change the password after signing in.")}</div>
+    <div className="ok">{t("They sign in with their 4Geeks account. It must use this email:")}</div>
     <div><div className="lb">{t("Email")}</div><code>{created.email}</code></div>
-    {created.temporary_password && <div><div className="lb">{t("Temporary password")}</div><code style={{ fontSize: 16 }}>{created.temporary_password}</code></div>}
     <button className="btn bp" onClick={onClose}>{t("Done")}</button></Modal>;
   return <Modal title={t("Add person")} onClose={onClose}>
     <form className="stack" onSubmit={submit}>
@@ -279,7 +276,7 @@ function AddPerson({ cohorts, advisors, onClose, onDone }: { cohorts: Cohort[]; 
           <option value="">{t("Choose…")}</option>{advisors.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}</select></div>
         <div><label className="lb" htmlFor="as">{t("Job search start date")}</label><input className="in" id="as" type="date" value={f.job_search_start_date} onChange={(e) => setF({ ...f, job_search_start_date: e.target.value })} /></div>
       </>}
-      <div><label className="lb" htmlFor="ap">{t("Password (leave empty to generate one)")}</label><input className="in" id="ap" type="text" value={f.password} onChange={(e) => setF({ ...f, password: e.target.value })} /></div>
+      <p className="cap">{t("Use the email of their 4Geeks account. That's how they sign in.")}</p>
       <ErrorBox error={err} />
       <button className="btn bp">{t("Create account")}</button>
     </form></Modal>;

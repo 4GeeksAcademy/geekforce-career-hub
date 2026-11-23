@@ -42,9 +42,9 @@ class Settings(BaseSettings):
     anthropic_api_key: str = ""
     anthropic_model: str = "claude-sonnet-5-5"
 
-    # Breathcode (phase 2: 4Geeks platform login + attendance)
-    breathcode_enabled: bool = False
+    # 4Geeks (Breathcode): the only way to sign in. Hosted login + GitHub OAuth live on this API.
     breathcode_api_url: str = "https://breathecode.herokuapp.com"
+    dev_password_login: bool = False  # local development only: email + password form for the demo accounts
 
     # Notion (roster sync, read-only)
     notion_token: str = ""
@@ -64,3 +64,31 @@ class Settings(BaseSettings):
 
 
 settings = Settings()
+
+# Values that ship in the code or in .env.example: anyone who reads the repo knows them.
+_KNOWN_JWT_SECRETS = {"change-me-in-production", "generate-a-long-random-string", "changeme", "secret"}
+MIN_JWT_SECRET_LENGTH = 32
+
+
+def jwt_secret_problem(secret: str) -> str | None:
+    """Why this JWT secret is unsafe, or None if it's fine. Whoever knows the secret can sign a token for any user,
+    admins included, so it must be long, random and never one of the values written in the repo."""
+    if not secret or secret.strip().lower() in _KNOWN_JWT_SECRETS:
+        return "JWT_SECRET is not set (or still has the example value from the repo)"
+    if len(secret) < MIN_JWT_SECRET_LENGTH:
+        return f"JWT_SECRET is shorter than {MIN_JWT_SECRET_LENGTH} characters"
+    return None
+
+
+def check_jwt_secret(s: Settings) -> None:
+    """Refuse to start with an unsafe JWT secret. Only DEV_PASSWORD_LOGIN (local development) downgrades it to a
+    warning, so a production deploy that forgot JWT_SECRET fails loudly instead of accepting forged tokens."""
+    problem = jwt_secret_problem(s.jwt_secret)
+    if not problem:
+        return
+    hint = 'Generate one with: python -c "import secrets; print(secrets.token_urlsafe(48))"'
+    if s.dev_password_login:
+        import logging
+        logging.getLogger("geekforce").warning("%s. Fine for local development only. %s", problem, hint)
+        return
+    raise RuntimeError(f"{problem}. {hint}")

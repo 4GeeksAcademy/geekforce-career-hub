@@ -1,309 +1,322 @@
-import { useMemo, useState, type FormEvent } from "react";
-import { api } from "../lib/api";
-import { useAuth } from "../lib/auth";
-import { useApi } from "../lib/useApi";
-import { relTime } from "../lib/format";
-import { ErrorBox, Modal, Spinner, useToast } from "../components/ui";
-import { IPlug, IPlus } from "../components/Icons";
-import { t } from "../lib/i18n";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useSearchParams } from "react-router-dom";
+import { AUTOMATIONS, EDGES, type Automation, type Channel, type DNode, type Edge, type Risk, type Schedule, type Tx } from "../data/automations";
+import { Modal } from "../components/ui";
+import { IAlert, IArrow, ICal, ICheck, IPlug } from "../components/Icons";
+import { lang, locale, t } from "../lib/i18n";
 
-type Auto = {
-  id: string; name: string; description: string | null; category: string | null; connection_id: string | null;
-  n8n_workflow_id: string | null; link: string | null; webhook_url: string | boolean | null; runnable: boolean;
-  secret: string | null; events: string[]; scope: string; allow_advisors: boolean; active: boolean;
-  schedule_note: string | null; last_run_at: string | null; last_status: string | null; callback_url: string; runs_24h: number | null;
+/** Read-only catalog of every automation in the area (admins and advisors). Content: src/data/automations.ts */
+
+const L = (x: Tx) => x[lang()];
+const BY_ID = Object.fromEntries(AUTOMATIONS.map((a) => [a.id, a]));
+const SPAIN = "Europe/Madrid";
+const MIAMI = "America/New_York";
+
+// ── time zones: show every schedule in Spain and Miami time, correct for daylight saving on the current week ──
+
+function offsetMin(at: Date, tz: string) {
+  const p = new Intl.DateTimeFormat("en-US", { timeZone: tz, hourCycle: "h23", year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", second: "2-digit" }).formatToParts(at);
+  const g = (k: string) => Number(p.find((x) => x.type === k)?.value);
+  return (Date.UTC(g("year"), g("month") - 1, g("day"), g("hour"), g("minute"), g("second")) - at.getTime()) / 60000;
+}
+/** The instant when it's `hh:mm` on ISO weekday `day` (1 = Mon) of the current week, in `tz`. */
+function instant(day: number, hhmm: string, tz: string) {
+  const now = new Date();
+  const monday = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() - ((now.getUTCDay() + 6) % 7)));
+  const [h, m] = hhmm.split(":").map(Number);
+  const guess = Date.UTC(monday.getUTCFullYear(), monday.getUTCMonth(), monday.getUTCDate() + day - 1, h, m);
+  return new Date(guess - (tz === "UTC" ? 0 : offsetMin(new Date(guess), tz)) * 60000);
+}
+const hm = (d: Date, tz: string) => new Intl.DateTimeFormat(locale(), { timeZone: tz, hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).format(d);
+const isoDay = (d: Date, tz: string) => ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"].indexOf(new Intl.DateTimeFormat("en-US", { timeZone: tz, weekday: "short" }).format(d)) + 1;
+const dayName = (n: number) => {
+  const s = new Intl.DateTimeFormat(locale(), { weekday: "long", timeZone: "UTC" }).format(new Date(Date.UTC(2024, 0, n)));  // Jan 1 2024 is a Monday
+  return s.charAt(0).toUpperCase() + s.slice(1);
 };
-type Run = { id: string; automation_id: string; source: string; status: string; event: string | null; context: Record<string, unknown> | null;
-  http_status: number | null; response: string | null; duration_ms: number | null; triggered_by: string | null; created_at: string };
-type Conn = { id: string; name: string; base_url: string; has_api_key: boolean; api_key_hint: string | null };
-type Meta = { events: Record<string, string>; scopes: Record<string, string>; ingest_url: string; ingest_ready: boolean };
-type Wf = { id: string; name: string; active: boolean; triggers: string[]; webhook_url: string | null; link: string; automation_id: string | null };
-type Opt = { id: string; name: string };
 
-const SOURCE: Record<string, string> = { manual: "Run by hand", event: "Hub event", callback: "Workflow reported", test: "Test" };
+function whenText(s: Schedule) {
+  const days = s.days.length === 7 ? t("Every day") : s.days.map((d) => dayName(d)).join(", ");
+  const at = instant(s.days[0], s.time, s.tz);
+  return { days, spain: hm(at, SPAIN), miami: hm(at, MIAMI) };
+}
 
-function StatusDot({ s }: { s: string | null }) {
-  if (!s) return <span className="pill" style={{ background: "var(--bg)", color: "var(--muted)" }}>{t("Never run")}</span>;
-  return s === "ok" ? <span className="pill" style={{ background: "#E7F6EC", color: "#1B6B3A" }}>{t("OK")}</span>
-    : <span className="pill" style={{ background: "var(--red-soft)", color: "var(--red-ink)" }}>{t("Error")}</span>;
+// ── tooltips: where each automation runs, what each channel means, what each risk level means ──
+
+/** Hover (or keyboard focus, when `focus`) shows `tip` under the element. */
+function Tip({ tip, children, className = "", end, focus }: { tip: string; children: ReactNode; className?: string; end?: boolean; focus?: boolean }) {
+  return <span className={`tip ${end ? "tip-end" : ""} ${className}`} data-tip={tip} tabIndex={focus ? 0 : undefined}>{children}</span>;
+}
+
+const PLATFORM: Record<Automation["platform"], { name: string; tip: string }> = {
+  github: { name: "GitHub Actions", tip: "Runs on GitHub's servers, from the GF_Automations repository. It doesn't depend on Career Hub. Its schedule is set in UTC." },
+  hub: { name: "Career Hub", tip: "Runs inside this app (Career Hub, on Railway). Its schedule follows Miami time. If the app is down, it doesn't run." },
+};
+const CH: Record<Channel, { name: string; tip: string }> = {
+  slack: { name: "Slack", tip: "Posts a message in Slack." },
+  email: { name: "Email", tip: "Sends an email." },
+  inapp: { name: "In-app", tip: "Shows a notification inside Career Hub." },
+  none: { name: "No messages", tip: "Doesn't message anyone: it only updates data." },
+  activecampaign: { name: "ActiveCampaign", tip: "Updates the contact in ActiveCampaign, the email marketing tool." },
+  webhook: { name: "n8n webhook", tip: "Hands the data to n8n, which sends the messages." },
+};
+const platformPill = (a: Automation, focus?: boolean) =>
+  <Tip tip={t(PLATFORM[a.platform].tip)} focus={focus}><span className={`pill ${a.platform === "github" ? "pn" : "pb"}`}>{PLATFORM[a.platform].name}</span></Tip>;
+const channelPill = (c: Channel, focus?: boolean) =>
+  <Tip key={c} tip={t(CH[c].tip)} focus={focus}><span className="pill pg">{t(CH[c].name)}</span></Tip>;
+
+function TriggerLine({ a }: { a: Automation }) {
+  if (a.trigger.kind === "event") return <span><b>{t("When it happens:")}</b> {L(a.trigger.label)}</span>;
+  const w = whenText(a.trigger.schedule);
+  const after = a.trigger.after && BY_ID[a.trigger.after];
+  return <span><b>{w.days}</b> · {after ? t("right after {name}", { name: L(after.name) }) : <>{w.spain} {t("Spain")} · {w.miami} {t("Miami")}</>}</span>;
+}
+
+function edgesOf(id: string) {
+  return { out: EDGES.filter((e) => e.from === id), inc: EDGES.filter((e) => e.to === id) };
+}
+
+function SectionHead({ title, help, children }: { title: string; help: string; children?: ReactNode }) {
+  return <div className="between"><div><h2 className="h2">{title}</h2><div className="cap sec-help">{help}</div></div>{children}</div>;
 }
 
 export default function Automations() {
-  const { user } = useAuth();
-  const admin = user?.role === "admin";
-  const autos = useApi<Auto[]>("/automations");
-  const meta = useApi<Meta>("/automations/meta");
-  const runs = useApi<Run[]>("/automations/runs?limit=60");
-  const conns = useApi<Conn[]>(admin ? "/automations/connections" : null);
-  const [tab, setTab] = useState<"workflows" | "history" | "connections">("workflows");
-  const [running, setRunning] = useState<Auto | null>(null);
-  const [editing, setEditing] = useState<Auto | "new" | null>(null);
-  const [q, setQ] = useState("");
-  const names = useMemo(() => Object.fromEntries((autos.data || []).map((a) => [a.id, a.name])), [autos.data]);
-  const groups = useMemo(() => {
-    const ql = q.trim().toLowerCase();
-    const m = new Map<string, Auto[]>();
-    for (const a of autos.data || []) {
-      if (ql && !`${a.name} ${a.description || ""} ${a.category || ""}`.toLowerCase().includes(ql)) continue;
-      const k = a.category || t("Other");
-      m.set(k, [...(m.get(k) || []), a]);
-    }
-    return [...m.entries()];
-  }, [autos.data, q]);
-  const reload = () => { autos.reload(); runs.reload(); };
+  const [params, setParams] = useSearchParams();
+  const [filter, setFilter] = useState<"all" | "github" | "hub">("all");
+  const open = params.get("a");
+  const show = (id: string | null) => setParams(id ? { a: id } : {}, { replace: !!open && !!id });
+  const list = AUTOMATIONS.filter((a) => filter === "all" || a.platform === filter);
+  const count = (p: "github" | "hub") => AUTOMATIONS.filter((a) => a.platform === p).length;
 
   return (
     <>
-      <header className="top"><div><div className="kick">{t("Manage")}</div><h1>{t("Automations")}</h1>
-        <div className="sub">{t("n8n workflows connected to the hub: run them by hand, fire them on hub events, and see what they reported back.")}</div></div>
-        {admin && <button className="btn bp" onClick={() => setEditing("new")}><IPlus size={18} />{t("Add workflow")}</button>}</header>
+      <header className="top"><div><div className="kick">{t("Manage")}</div>
+        <h1>{t("Automations")} <em>{t("explained.")}</em></h1>
+        <div className="sub">{t("What runs on its own in GeekForce: when it starts, what it does, how it handles errors and what it connects to.")}</div></div></header>
       <div className="content">
-        <div className="tabs" role="tablist">
-          {(["workflows", "history", ...(admin ? ["connections"] as const : [])] as const).map((k) =>
-            <button key={k} role="tab" aria-selected={tab === k} className={`tab${tab === k ? " on" : ""}`} onClick={() => setTab(k)}>
-              {k === "workflows" ? t("Workflows") : k === "history" ? t("Run history") : t("n8n connection")}</button>)}
+        <div className="stats">
+          <div className="stat s-blue"><div className="v">{AUTOMATIONS.length}</div><div className="l">{t("Automations")}</div><div className="c">{t("Everything that runs without anyone pressing a button")}</div></div>
+          <Tip tip={t(PLATFORM.github.tip)} className="stat"><div className="v">{count("github")}</div><div className="l">GitHub Actions</div><div className="c">{t("Spain · repo GF_Automations")}</div></Tip>
+          <Tip tip={t(PLATFORM.hub.tip)} className="stat" end><div className="v">{count("hub")}</div><div className="l">Career Hub</div><div className="c">{t("Miami · this app")}</div></Tip>
+          <div className="stat s-cream"><div className="v">{EDGES.length}</div><div className="l">{t("Connections")}</div><div className="c">{t("Open a card to see them")}</div></div>
         </div>
 
-        {tab === "workflows" && <>
-          <input className="in" style={{ maxWidth: 320 }} placeholder={t("Search workflows")} aria-label={t("Search workflows")} value={q} onChange={(e) => setQ(e.target.value)} />
-          {autos.loading ? <Spinner /> : <ErrorBox error={autos.error} />}
-          {groups.map(([cat, list]) => <section key={cat} className="card stack">
-            <h2 className="h2">{cat} <span className="cap">· {list.length}</span></h2>
-            <div className="tw"><table>
-              <thead><tr><th>{t("Workflow")}</th><th>{t("How it starts")}</th><th>{t("Last run")}</th><th></th></tr></thead>
-              <tbody>{list.map((a) => <tr key={a.id} style={a.active ? undefined : { opacity: .55 }}>
-                <td><strong>{a.name}</strong>{!a.active && <span className="cap"> · {t("paused")}</span>}
-                  {a.description && <div className="cap">{a.description}</div>}
-                  {a.link && <div className="cap"><a href={a.link} target="_blank" rel="noreferrer">{t("Open in n8n")} ↗</a></div>}</td>
-                <td className="cap">
-                  {a.runnable ? <div>▶ {t("Run button")}{a.scope !== "none" ? ` · ${t("needs a {scope}", { scope: t(meta.data?.scopes[a.scope] || a.scope).toLowerCase() })}` : ""}</div>
-                    : <div style={{ color: "var(--amber-ink)" }}>{t("No Webhook trigger yet")}</div>}
-                  {a.events.length > 0 && <div>⚡ {a.events.map((e) => t(meta.data?.events[e] || e)).join(", ")}</div>}
-                  {a.schedule_note && <div>🕒 {t(a.schedule_note)}</div>}</td>
-                <td><StatusDot s={a.last_status} />{a.last_run_at && <div className="cap">{relTime(a.last_run_at)}</div>}</td>
-                <td style={{ whiteSpace: "nowrap", textAlign: "right" }}>
-                  <button className="btn bp sm" disabled={!a.runnable || !a.active} title={a.runnable ? "" : t("Add a Webhook trigger in n8n first")} onClick={() => setRunning(a)}>{t("Run")}</button>{" "}
-                  {admin && <button className="btn bg sm" onClick={() => setEditing(a)}>{t("Set up")}</button>}</td>
-              </tr>)}</tbody></table></div>
-          </section>)}
-          {!autos.loading && groups.length === 0 && <div className="card cap">{t("No workflows yet.")}</div>}
-          <HowTo meta={meta.data} />
-        </>}
+        <Week onOpen={show} />
 
-        {tab === "history" && <section className="card stack">
-          <div style={{ display: "flex", justifyContent: "space-between" }}><h2 className="h2">{t("Run history")}</h2><button className="btn bg sm" onClick={runs.reload}>{t("Refresh")}</button></div>
-          {runs.loading ? <Spinner /> : !runs.data?.length ? <div className="cap">{t("Nothing has run yet.")}</div> : <div className="tw"><table>
-            <thead><tr><th>{t("When")}</th><th>{t("Workflow")}</th><th>{t("Started by")}</th><th>{t("For")}</th><th>{t("Result")}</th></tr></thead>
-            <tbody>{runs.data.map((r) => <tr key={r.id}>
-              <td className="cap">{relTime(r.created_at)}</td><td><strong>{names[r.automation_id] || "—"}</strong></td>
-              <td className="cap">{t(SOURCE[r.source] || r.source)}{r.triggered_by ? ` · ${r.triggered_by}` : ""}{r.event ? ` · ${t(meta.data?.events[r.event] || r.event)}` : ""}</td>
-              <td className="cap">{contextText(r.context)}</td>
-              <td><StatusDot s={r.status} />{r.http_status ? <span className="cap"> {r.http_status}</span> : null}{r.duration_ms != null && <span className="cap"> · {r.duration_ms} ms</span>}
-                {r.response && <div className="cap" style={{ maxWidth: 380, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={r.response}>{r.response}</div>}</td>
-            </tr>)}</tbody></table></div>}
-        </section>}
-
-        {tab === "connections" && admin && <Connections conns={conns.data || []} loading={conns.loading} reload={() => { conns.reload(); autos.reload(); }} />}
+        <section className="stack">
+          <SectionHead title={t("All automations")} help={t("Click one to open its card and its diagram. Hover the labels to see where it runs and how it sends messages.")}>
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }} role="group" aria-label={t("Filter")}>
+              {([["all", t("All")], ["github", "GitHub Actions"], ["hub", "Career Hub"]] as const).map(([k, l]) =>
+                <button key={k} className={`chip ${filter === k ? "on" : ""}`} aria-pressed={filter === k} onClick={() => setFilter(k)}>{l}</button>)}
+            </div>
+          </SectionHead>
+          <div className="auto-grid">{list.map((a) => {
+            const e = edgesOf(a.id);
+            const risks = a.errors.filter((r) => r.level === "risk").length;
+            const n = e.out.length + e.inc.length;
+            return <div key={a.id} className="auto-card" role="button" tabIndex={0} onClick={() => show(a.id)}
+              onKeyDown={(ev) => (ev.key === "Enter" || ev.key === " ") && (ev.preventDefault(), show(a.id))}>
+              <div className="between">{platformPill(a)}{risks > 0 &&
+                <Tip end tip={t("Risks found when reading the code. Details in «If something fails».")}><span className="pill pa"><IAlert size={14} />{risks}</span></Tip>}</div>
+              <div className="auto-name">{L(a.name)}</div>
+              <div className="cap auto-short">{L(a.short)}</div>
+              <div className="auto-meta"><ICal size={16} /><TriggerLine a={a} /></div>
+              <div className="auto-foot">
+                {a.channels.map((c) => channelPill(c))}
+                {n > 0 && <Tip tip={t("Other automations it sends students to, runs with, or shares data with.")}>
+                  <span className="pill pb"><IPlug size={12} />{n === 1 ? t("1 connection") : t("{n} connections", { n })}</span></Tip>}
+              </div>
+            </div>;
+          })}</div>
+        </section>
       </div>
-      {running && <RunModal a={running} meta={meta.data} onClose={() => setRunning(null)} onDone={() => { reload(); }} />}
-      {editing && <EditAuto a={editing === "new" ? null : editing} meta={meta.data} conns={conns.data || []} onClose={() => setEditing(null)} onDone={() => { setEditing(null); reload(); }} />}
+      {open && BY_ID[open] && <Card key={open} a={BY_ID[open]} onClose={() => show(null)} onOpen={show} />}
     </>);
 }
 
-function contextText(c: Record<string, unknown> | null): string {
-  if (!c) return "—";
-  const parts: string[] = [];
-  for (const k of ["student", "cohort", "job"]) {
-    const v = c[k] as { name?: string } | undefined;
-    if (v?.name) parts.push(v.name);
-  }
-  for (const k of ["items", "jobs", "count"]) if (c[k] != null) parts.push(`${c[k]} ${t(k)}`);
-  if (c.country) parts.push(String(c.country));
-  return parts.join(" · ") || "—";
-}
-
-function HowTo({ meta }: { meta: Meta | null }) {
-  return <section className="card stack" style={{ background: "var(--bg2)" }}>
-    <h2 className="h2">{t("Connecting an n8n workflow")}</h2>
-    <ol className="stack" style={{ margin: 0, paddingLeft: 20, gap: 8 }}>
-      <li><strong>{t("To run it from here:")}</strong> {t("in n8n, add a Webhook trigger (POST) to the workflow, activate it, and paste its Production URL in “Set up”. The hub sends the student, cohort or job you pick, plus the header X-GeekForce-Secret.")}</li>
-      <li><strong>{t("To fire it on hub events:")}</strong> {t("in “Set up”, tick the events (stage changed, job shared, student applied…). Same Webhook, sent automatically.")}</li>
-      <li><strong>{t("To report back:")}</strong> {t("at the end of the workflow add an HTTP Request node: POST to the workflow's callback URL (shown in “Set up”) with the header X-GeekForce-Secret and a JSON body like {example}. Scheduled runs then show in Run history.", { example: '{"status": "ok", "message": "Found 12 jobs", "items": 12}' })}</li>
-      <li><strong>{t("Job workflows:")}</strong> {t("send the jobs they find to the Job Radar: POST {url} with header X-Jobs-Secret and a body like {example}. Country lets advisors filter Spain, Mexico, Colombia, Venezuela or Argentina jobs.", { url: meta?.ingest_url || "/api/v1/integrations/jobs", example: '{"source": "n8n", "jobs": [{"title": "…", "company": "…", "country": "ES", "url": "…"}]}' })}
-        {meta && !meta.ingest_ready && <span style={{ color: "var(--amber-ink)" }}> {t("(JOBS_INGEST_SECRET isn't set in Railway yet.)")}</span>}</li>
-    </ol>
+/** Weekly calendar of scheduled automations, in Spain or Miami time. */
+function Week({ onOpen }: { onOpen: (id: string) => void }) {
+  const [tz, setTz] = useState<typeof SPAIN | typeof MIAMI>(SPAIN);
+  const cells = useMemo(() => {
+    const out: Record<number, { a: Automation; time: string; sort: number }[]> = { 1: [], 2: [], 3: [], 4: [], 5: [], 6: [], 7: [] };
+    for (const a of AUTOMATIONS) {
+      if (a.trigger.kind !== "schedule") continue;
+      const s = a.trigger.schedule;
+      for (const d of s.days) {
+        const at = instant(d, s.time, s.tz);
+        const local = hm(at, tz);
+        out[isoDay(at, tz)].push({ a, time: a.trigger.after ? `${local}+` : local, sort: Number(local.replace(":", "")) + (a.trigger.after ? 0.5 : 0) });
+      }
+    }
+    Object.values(out).forEach((v) => v.sort((p, q) => p.sort - q.sort));
+    return out;
+  }, [tz]);
+  const events = AUTOMATIONS.filter((a) => a.trigger.kind === "event");
+  return <section className="card stack">
+    <SectionHead title={t("Weekly calendar")} help={t("When each scheduled automation runs during the week. Click one to open its card.")}>
+      <div style={{ display: "flex", gap: 8 }} role="group" aria-label={t("Time zone")}>
+        <button className={`chip ${tz === SPAIN ? "on" : ""}`} aria-pressed={tz === SPAIN} onClick={() => setTz(SPAIN)}>{t("Spain time")}</button>
+        <button className={`chip ${tz === MIAMI ? "on" : ""}`} aria-pressed={tz === MIAMI} onClick={() => setTz(MIAMI)}>{t("Miami time")}</button>
+      </div>
+    </SectionHead>
+    <div className="week-legend cap">
+      <Tip tip={t(PLATFORM.github.tip)} focus><i className="wl github" />GitHub Actions</Tip>
+      <Tip tip={t(PLATFORM.hub.tip)} focus><i className="wl hub" />Career Hub</Tip>
+    </div>
+    <div className="week">{[1, 2, 3, 4, 5, 6, 7].map((d) => (
+      <div key={d} className="week-day">
+        <div className="eyebrow">{dayName(d)}</div>
+        {cells[d].map(({ a, time }) => <button key={a.id} className={`week-item ${a.platform}`} onClick={() => onOpen(a.id)}
+          title={`${PLATFORM[a.platform].name} · ${L(a.short)}`}>
+          <span className="num">{time}</span> {L(a.name)}</button>)}
+      </div>))}</div>
+    <div className="cap">{t("«+» runs right after the previous one. Times follow daylight saving for the current week.")}</div>
+    {events.length > 0 && <div className="stack" style={{ gap: 8 }}>
+      <div className="eyebrow">{t("Not on a schedule: they start when something happens")}</div>
+      <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>{events.map((a) =>
+        <button key={a.id} className="chip" onClick={() => onOpen(a.id)} title={`${PLATFORM[a.platform].name} · ${L(a.short)}`}>⚡ {L(a.name)}</button>)}</div>
+    </div>}
   </section>;
 }
 
-function RunModal({ a, meta, onClose, onDone }: { a: Auto; meta: Meta | null; onClose: () => void; onDone: () => void }) {
-  const students = useApi<{ items: Opt[] }>(a.scope === "student" ? "/advisor/students" : null);
-  const cohorts = useApi<Opt[]>(a.scope === "cohort" ? "/admin/cohorts" : null);
-  const jobs = useApi<{ items: { id: string; title: string; company: string | null }[] }>(a.scope === "job" ? "/advisor/jobs?days=60" : null);
-  const [target, setTarget] = useState("");
-  const [params, setParams] = useState("");
-  const [err, setErr] = useState<unknown>(null);
-  const [busy, setBusy] = useState(false);
-  const [result, setResult] = useState<Run | null>(null);
-  const opts: Opt[] = a.scope === "student" ? (students.data?.items || []) : a.scope === "cohort" ? (cohorts.data || [])
-    : (jobs.data?.items || []).map((j) => ({ id: j.id, name: `${j.title}${j.company ? ` · ${j.company}` : ""}` }));
-  const submit = async (e: FormEvent) => {
-    e.preventDefault(); setErr(null); setBusy(true);
-    try {
-      let p: Record<string, unknown> = {};
-      if (params.trim()) {
-        try { p = JSON.parse(params); } catch { p = { note: params.trim() }; }
-      }
-      const body: Record<string, unknown> = { params: p };
-      if (a.scope !== "none") body[`${a.scope}_id`] = target;
-      const r = await api.post<Run>(`/automations/${a.id}/run`, body);
-      setResult(r); onDone();
-    } catch (e) { setErr(e); } finally { setBusy(false); }
-  };
-  if (result) return <Modal title={a.name} onClose={onClose}>
-    {result.status === "ok" ? <div className="ok">{t("Sent to n8n. The workflow is running.")}</div>
-      : <div className="err">{t("n8n didn't accept it ({code}). Check that the workflow is active and the Webhook URL is the Production one.", { code: result.http_status ?? t("no answer") })}</div>}
-    {result.response && <pre className="cap" style={{ whiteSpace: "pre-wrap", maxHeight: 200, overflow: "auto", background: "var(--bg)", padding: 10, borderRadius: 8 }}>{result.response}</pre>}
-    <button className="btn bp" onClick={onClose}>{t("Done")}</button></Modal>;
-  return <Modal title={t("Run {name}", { name: a.name })} onClose={onClose}>
-    <form className="stack" onSubmit={submit}>
-      {a.description && <div className="cap">{a.description}</div>}
-      {a.scope !== "none" && <div><label className="lb" htmlFor="rt">{t(meta?.scopes[a.scope] || a.scope)}</label>
-        <select className="in" id="rt" required value={target} onChange={(e) => setTarget(e.target.value)}>
-          <option value="">{t("Choose…")}</option>{opts.map((o) => <option key={o.id} value={o.id}>{o.name}</option>)}</select></div>}
-      <div><label className="lb" htmlFor="rp">{t("Extra details for the workflow (optional)")}</label>
-        <textarea className="in" id="rp" rows={3} placeholder={t("A note, or JSON like {example}", { example: '{"country": "ES", "keywords": "AI engineer"}' })} value={params} onChange={(e) => setParams(e.target.value)} /></div>
-      <ErrorBox error={err} />
-      <button className="btn bp" disabled={busy}>{busy ? t("Sending…") : t("Run now")}</button>
-    </form></Modal>;
-}
+// ── the card ("ficha") ──
 
-function EditAuto({ a, meta, conns, onClose, onDone }: { a: Auto | null; meta: Meta | null; conns: Conn[]; onClose: () => void; onDone: () => void }) {
-  const [f, setF] = useState({
-    name: a?.name || "", description: a?.description || "", category: a?.category || "", n8n_workflow_id: a?.n8n_workflow_id || "",
-    link: a?.link || "", webhook_url: typeof a?.webhook_url === "string" ? a.webhook_url : "", events: a?.events || [] as string[],
-    scope: a?.scope || "none", allow_advisors: a?.allow_advisors ?? true, active: a?.active ?? true, schedule_note: a?.schedule_note || "",
-    connection_id: a?.connection_id || "",
-  });
-  const [err, setErr] = useState<unknown>(null);
-  const [busy, setBusy] = useState(false);
-  const [testing, setTesting] = useState<Run | null>(null);
-  const toast = useToast();
-  const save = async (e?: FormEvent) => {
-    e?.preventDefault(); setErr(null); setBusy(true);
-    try {
-      const body = { ...f, connection_id: f.connection_id || null };
-      if (a) await api.patch(`/automations/${a.id}`, body); else await api.post("/automations", body);
-      toast(t("Saved")); onDone();
-    } catch (e) { setErr(e); } finally { setBusy(false); }
+const RISK: Record<Risk["level"], { cls: string; label: string; tip: string }> = {
+  ok: { cls: "r-ok", label: "Handled", tip: "The automation already handles this case." },
+  warn: { cls: "r-warn", label: "Watch", tip: "Not broken, but worth keeping an eye on." },
+  risk: { cls: "r-risk", label: "Risk", tip: "It can fail or do the wrong thing today. Found when reading the code." },
+};
+const EDGE_OUT: Record<Edge["kind"], string> = { feeds: "Sends students to", runs_before: "Runs before", data: "Affects data of", similar: "Similar to" };
+const EDGE_IN: Record<Edge["kind"], string> = { feeds: "Receives students from", runs_before: "Runs after", data: "Its data is affected by", similar: "Similar to" };
+
+type SecDef = { id: string; title: string; help: string; body: ReactNode };
+
+function Card({ a, onClose, onOpen }: { a: Automation; onClose: () => void; onOpen: (id: string) => void }) {
+  const [tab, setTab] = useState<"card" | "diagram">("card");
+  const scroller = useRef<HTMLDivElement>(null);
+  const jumping = useRef<number | null>(null);
+  const e = edgesOf(a.id);
+
+  const secs: SecDef[] = [
+    { id: "what", title: t("What it does"), help: t("The job it does, in plain words."), body: <p>{L(a.what)}</p> },
+    { id: "start", title: t("What starts it"), help: t("The schedule or the event that makes it run, and how to run it by hand."), body: <>
+      <div className="auto-meta"><ICal size={16} /><TriggerLine a={a} /></div>
+      {a.trigger.kind === "schedule" && a.trigger.schedule.tz === "UTC" && <div className="cap">{t("GitHub schedule: {time} UTC.", { time: a.trigger.schedule.time })}</div>}
+      {a.manual && <div className="cap"><b>{t("By hand:")}</b> {L(a.manual)}</div>}</> },
+    { id: "who", title: t("Who it affects"), help: t("The people it looks at each time it runs."), body: <ul className="ticks">{a.audience.map((x, i) => <li key={i}>{L(x)}</li>)}</ul> },
+    ...(a.rules ? [{ id: "rules", title: t("Rules"), help: t("How it decides what to do with each person. Read each row as «if this, then that». The tag is the label it leaves in Notion."), body:
+      <div className="tw"><table className="rules"><thead><tr><th>{t("If…")}</th><th>{t("Then…")}</th><th>{t("Tag")}</th></tr></thead>
+        <tbody>{a.rules.map((r, i) => <tr key={i}><td>{L(r.when)}</td><td>{L(r.then)}</td><td>{r.tag ? <code>{r.tag}</code> : "—"}</td></tr>)}</tbody></table></div> }] : []),
+    { id: "changes", title: t("What it changes"), help: t("The data it writes and the messages it sends."), body: <ul className="ticks">{a.writes.map((x, i) => <li key={i}>{L(x)}</li>)}</ul> },
+    { id: "fails", title: t("If something fails"), help: t("What happens when a step goes wrong. Hover each label to see what it means."), body:
+      <div className="stack" style={{ gap: 8 }}>{a.errors.map((r, i) => <div key={i} className={`risk ${RISK[r.level].cls}`}>
+        <Tip tip={t(RISK[r.level].tip)} focus><span className="risk-tag">{r.level === "ok" ? <ICheck size={14} /> : <IAlert size={14} />}{t(RISK[r.level].label)}</span></Tip>
+        <span>{L(r.text)}</span></div>)}</div> },
+    { id: "links", title: t("Connections"), help: t("Other automations that send it students, run before or after it, or touch the same data. Click one to open its card."), body:
+      e.out.length + e.inc.length === 0 ? <div className="cap">{t("It doesn't connect to other automations.")}</div> :
+        <div className="edges">
+          {e.out.map((x, i) => <EdgeRow key={`o${i}`} verb={t(EDGE_OUT[x.kind])} other={x.to} label={x.label} onOpen={onOpen} />)}
+          {e.inc.map((x, i) => <EdgeRow key={`i${i}`} verb={t(EDGE_IN[x.kind])} other={x.from} label={x.label} onOpen={onOpen} />)}
+        </div> },
+    ...(a.notes ? [{ id: "notes", title: t("Good to know"), help: t("Details and quirks found when reading the code."), body: <ul className="ticks">{a.notes.map((x, i) => <li key={i}>{L(x)}</li>)}</ul> }] : []),
+    { id: "where", title: t("Where it lives"), help: t("Where the code is, for whoever needs to change it."), body: <>
+      <div className="cap">{a.source.url ? <a href={a.source.url} target="_blank" rel="noopener noreferrer">{a.source.repo}</a> : a.source.repo}
+        {" · "}{a.source.files.map((f, i) => <span key={f}>{i > 0 && ", "}<code>{f}</code></span>)}</div>
+      <div className="cap">{t("Last run and live status: coming in phase 3.")}</div></> },
+  ];
+  const [active, setActive] = useState(secs[0].id);
+  const index = useRef<HTMLElement>(null);
+  // on narrow screens the index scrolls sideways: keep the current section's chip in view
+  useEffect(() => {
+    const nav = index.current, chip = nav?.querySelector<HTMLElement>("[aria-current]");
+    if (nav && chip) nav.scrollTo({ left: chip.offsetLeft - nav.clientWidth / 2 + chip.clientWidth / 2, behavior: "smooth" });
+  }, [active]);
+
+  // highlight the section being read; at the bottom, the last one
+  const onScroll = () => {
+    const el = scroller.current;
+    if (!el || tab !== "card" || jumping.current !== null) return;
+    const items = Array.from(el.querySelectorAll<HTMLElement>("[data-sec]"));
+    let cur = items[0]?.dataset.sec;
+    if (el.scrollTop + el.clientHeight >= el.scrollHeight - 4) cur = items[items.length - 1]?.dataset.sec;
+    else for (const it of items) if (it.offsetTop <= el.scrollTop + 40) cur = it.dataset.sec;
+    if (cur) setActive(cur);
   };
-  const test = async () => {
-    if (!a) return;
-    setErr(null);
-    try {
-      await api.patch(`/automations/${a.id}`, { webhook_url: f.webhook_url });
-      setTesting(await api.post<Run>(`/automations/${a.id}/run`, { test: true, params: { test: true } }));
-    } catch (e) { setErr(e); }
+  const jump = (id: string) => {
+    const el = scroller.current;
+    const target = el?.querySelector<HTMLElement>(`[data-sec="${id}"]`);
+    if (!el || !target) return;
+    setActive(id);
+    if (jumping.current !== null) window.clearTimeout(jumping.current);
+    jumping.current = window.setTimeout(() => { jumping.current = null; }, 700);
+    el.scrollTo({ top: target.offsetTop - 4, behavior: "smooth" });
   };
-  const remove = async () => {
-    if (!a || !window.confirm(t("Remove {name} from the hub? The workflow in n8n is not touched.", { name: a.name }))) return;
-    await api.del(`/automations/${a.id}`); toast(t("Removed")); onDone();
-  };
-  const rotate = async () => {
-    if (!a || !window.confirm(t("Make a new secret? Update it in the n8n workflow afterwards, or its callbacks will be rejected."))) return;
-    await api.patch(`/automations/${a.id}`, { rotate_secret: true }); toast(t("New secret created")); onDone();
-  };
-  const copy = (v: string) => { navigator.clipboard?.writeText(v); toast(t("Copied")); };
-  const toggle = (ev: string) => setF({ ...f, events: f.events.includes(ev) ? f.events.filter((x) => x !== ev) : [...f.events, ev] });
-  return <Modal title={a ? t("Set up {name}", { name: a.name }) : t("Add workflow")} onClose={onClose}>
-    <form className="stack" onSubmit={save}>
-      <div><label className="lb" htmlFor="xn">{t("Name")}</label><input className="in" id="xn" required value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} /></div>
-      <div><label className="lb" htmlFor="xd">{t("What it does")}</label><input className="in" id="xd" value={f.description} onChange={(e) => setF({ ...f, description: e.target.value })} /></div>
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-        <div><label className="lb" htmlFor="xc">{t("Group")}</label><input className="in" id="xc" list="cats" value={f.category} onChange={(e) => setF({ ...f, category: e.target.value })} />
-          <datalist id="cats"><option value="Job market" /><option value="Outreach" /><option value="Students" /><option value="Reports" /></datalist></div>
-        <div><label className="lb" htmlFor="xw">{t("n8n workflow ID")}</label><input className="in" id="xw" value={f.n8n_workflow_id} onChange={(e) => setF({ ...f, n8n_workflow_id: e.target.value, link: "" })} /></div>
+  const switchTab = (k: "card" | "diagram") => { setTab(k); scroller.current?.scrollTo({ top: 0 }); };
+
+  return <Modal title={L(a.name)} onClose={onClose} wide>
+    <div className="ficha-top">
+      <div className="ficha-where">
+        <span className="cap"><b>{t("Where it runs:")}</b></span>{platformPill(a, true)}
+        <span className="cap">{t("Sends:")}</span>{a.channels.map((c) => channelPill(c, true))}
       </div>
-      <div><label className="lb" htmlFor="xu">{t("Webhook production URL (for Run and events)")}</label>
-        <div style={{ display: "flex", gap: 8 }}><input className="in" id="xu" placeholder="https://n8n.4geeks.com/webhook/…" value={f.webhook_url} onChange={(e) => setF({ ...f, webhook_url: e.target.value })} />
-          {a && f.webhook_url && <button type="button" className="btn bg sm" onClick={test}>{t("Test")}</button>}</div>
-        {testing && <div className={testing.status === "ok" ? "ok" : "err"} style={{ marginTop: 6 }}>{testing.status === "ok" ? t("n8n answered {code}. It works.", { code: testing.http_status ?? "" }) : `${t("Failed")}: ${testing.response || testing.http_status}`}</div>}</div>
-      <div><label className="lb" htmlFor="xs">{t("Run it with")}</label><select className="in" id="xs" value={f.scope} onChange={(e) => setF({ ...f, scope: e.target.value })}>
-        {Object.entries(meta?.scopes || { none: "Nothing (just start it)" }).map(([k, v]) => <option key={k} value={k}>{t(v)}</option>)}</select></div>
-      <fieldset className="stack" style={{ border: "1px solid var(--line)", borderRadius: 12, padding: 12, gap: 6 }}>
-        <legend className="lb">{t("Also start it automatically when…")}</legend>
-        {Object.entries(meta?.events || {}).map(([k, v]) => <label key={k} style={{ display: "flex", gap: 8 }}><input type="checkbox" checked={f.events.includes(k)} onChange={() => toggle(k)} />{t(v)}</label>)}
-      </fieldset>
-      <div><label className="lb" htmlFor="xsn">{t("Schedule note")}</label><input className="in" id="xsn" placeholder={t("e.g. Every weekday 8:00 in n8n")} value={f.schedule_note} onChange={(e) => setF({ ...f, schedule_note: e.target.value })} /></div>
-      {conns.length > 0 && <div><label className="lb" htmlFor="xcn">{t("n8n connection")}</label><select className="in" id="xcn" value={f.connection_id} onChange={(e) => setF({ ...f, connection_id: e.target.value })}>
-        <option value="">{t("None")}</option>{conns.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}</select></div>}
-      <label style={{ display: "flex", gap: 8 }}><input type="checkbox" checked={f.allow_advisors} onChange={(e) => setF({ ...f, allow_advisors: e.target.checked })} />{t("Advisors can see and run it")}</label>
-      <label style={{ display: "flex", gap: 8 }}><input type="checkbox" checked={f.active} onChange={(e) => setF({ ...f, active: e.target.checked })} />{t("Active")}</label>
-      {a && <div className="stack" style={{ background: "var(--bg)", borderRadius: 12, padding: 12, gap: 6 }}>
-        <div className="lb">{t("For the workflow's report back")}</div>
-        <div className="cap">{t("Callback URL")}: <code style={{ wordBreak: "break-all" }}>{a.callback_url}</code> <button type="button" className="btn bg sm" onClick={() => copy(a.callback_url)}>{t("Copy")}</button></div>
-        {a.secret && <div className="cap">X-GeekForce-Secret: <code>{a.secret.slice(0, 6)}…</code> <button type="button" className="btn bg sm" onClick={() => copy(a.secret!)}>{t("Copy")}</button> <button type="button" className="btn bg sm" onClick={rotate}>{t("New secret")}</button></div>}
+      <p className="ficha-short">{L(a.short)}</p>
+      <div className="tabs" role="tablist">
+        <button role="tab" aria-selected={tab === "card"} className={`tab ${tab === "card" ? "on" : ""}`} onClick={() => switchTab("card")}>{t("Card")}</button>
+        <button role="tab" aria-selected={tab === "diagram"} className={`tab ${tab === "diagram" ? "on" : ""}`} onClick={() => switchTab("diagram")}>{t("Diagram")}</button>
+      </div>
+      {tab === "card" ? <nav className="ficha-index" ref={index} aria-label={t("Sections")}>
+        {secs.map((s) => <button key={s.id} className={`chip ${active === s.id ? "on" : ""}`} aria-current={active === s.id ? "true" : undefined} onClick={() => jump(s.id)}>{s.title}</button>)}
+      </nav> : <div className="cap ficha-help">{t("Read it from top to bottom. Amber boxes are decisions: each branch shows what happens in that case. Blue boxes open another automation.")}</div>}
+    </div>
+    <div className="ficha-scroll" ref={scroller} onScroll={onScroll}>
+      {tab === "diagram" ? <Diagram nodes={a.diagram} onOpen={onOpen} /> : <div className="ficha">
+        {secs.map((s) => <section key={s.id} className="ficha-sec" data-sec={s.id}>
+          <div><h3 className="eyebrow">{s.title}</h3><div className="cap sec-help">{s.help}</div></div>
+          {s.body}
+        </section>)}
       </div>}
-      <ErrorBox error={err} />
-      <div style={{ display: "flex", gap: 10, justifyContent: "space-between" }}>
-        {a ? <button type="button" className="btn bd" onClick={remove}>{t("Remove")}</button> : <span />}
-        <button className="btn bp" disabled={busy}>{t("Save")}</button></div>
-    </form></Modal>;
+    </div>
+  </Modal>;
 }
 
-function Connections({ conns, loading, reload }: { conns: Conn[]; loading: boolean; reload: () => void }) {
-  const [f, setF] = useState({ name: "4Geeks n8n", base_url: "https://n8n.4geeks.com", api_key: "" });
-  const [err, setErr] = useState<unknown>(null);
-  const [status, setStatus] = useState<Record<string, string>>({});
-  const [wf, setWf] = useState<{ conn: string; items: Wf[] } | null>(null);
-  const toast = useToast();
-  const add = async (e: FormEvent) => {
-    e.preventDefault(); setErr(null);
-    try { await api.post("/automations/connections", f); setF({ ...f, api_key: "" }); reload(); toast(t("Connection saved")); } catch (e) { setErr(e); }
-  };
-  const test = async (c: Conn) => {
-    const r = await api.post<{ ok: boolean; error?: string }>(`/automations/connections/${c.id}/test`);
-    setStatus({ ...status, [c.id]: r.ok ? t("Connected") : r.error || t("Failed") });
-  };
-  const list = async (c: Conn) => {
-    setErr(null);
-    try { setWf({ conn: c.id, items: await api.get<Wf[]>(`/automations/connections/${c.id}/workflows`) }); } catch (e) { setErr(e); }
-  };
-  const sync = async (c: Conn) => {
-    const r = await api.post<{ updated: number }>(`/automations/connections/${c.id}/sync`);
-    toast(t("{n} workflows updated from n8n", { n: r.updated })); reload();
-  };
-  const register = async (w: Wf, c: string) => {
-    await api.post("/automations", { name: w.name, n8n_workflow_id: w.id, link: w.link, webhook_url: w.webhook_url, connection_id: c, category: "n8n" });
-    toast(t("{name} added", { name: w.name })); reload(); setWf(null);
-  };
-  const remove = async (c: Conn) => {
-    if (!window.confirm(t("Remove this connection? The API key is deleted from the hub."))) return;
-    await api.del(`/automations/connections/${c.id}`); reload();
-  };
-  return <>
-    <section className="card stack">
-      <h2 className="h2"><IPlug /> {t("n8n connection")}</h2>
-      <div className="cap">{t("Optional. With an n8n API key the hub can list your workflows, find their Webhook URLs and show n8n executions. Create the key in n8n → Settings → n8n API. It's stored on the server and never shown again.")}</div>
-      {loading ? <Spinner /> : conns.map((c) => <div key={c.id} style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap", borderTop: "1px solid var(--line)", paddingTop: 10 }}>
-        <div style={{ marginRight: "auto" }}><strong>{c.name}</strong><div className="cap">{c.base_url} · {c.has_api_key ? `${t("API key")} ${c.api_key_hint || ""}` : t("No API key")}{status[c.id] ? ` · ${status[c.id]}` : ""}</div></div>
-        <button className="btn bg sm" onClick={() => test(c)}>{t("Test")}</button>
-        <button className="btn bg sm" onClick={() => list(c)}>{t("Browse workflows")}</button>
-        <button className="btn bg sm" onClick={() => sync(c)}>{t("Sync webhooks")}</button>
-        <button className="btn bd sm" onClick={() => remove(c)}>{t("Remove")}</button></div>)}
-      <form onSubmit={add} style={{ display: "grid", gridTemplateColumns: "1fr 1.4fr 1.4fr auto", gap: 8, alignItems: "end" }}>
-        <div><label className="lb" htmlFor="cn">{t("Name")}</label><input className="in" id="cn" required value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} /></div>
-        <div><label className="lb" htmlFor="cu">{t("n8n URL")}</label><input className="in" id="cu" required value={f.base_url} onChange={(e) => setF({ ...f, base_url: e.target.value })} /></div>
-        <div><label className="lb" htmlFor="ck">{t("API key")}</label><input className="in" id="ck" type="password" autoComplete="off" value={f.api_key} onChange={(e) => setF({ ...f, api_key: e.target.value })} /></div>
-        <button className="btn bp">{t("Add")}</button>
-      </form>
-      <ErrorBox error={err} />
-    </section>
-    {wf && <section className="card stack">
-      <h2 className="h2">{t("Workflows in n8n")} <span className="cap">· {wf.items.length}</span></h2>
-      <div className="tw"><table><thead><tr><th>{t("Workflow")}</th><th>{t("Triggers")}</th><th></th></tr></thead>
-        <tbody>{wf.items.map((w) => <tr key={w.id}><td><strong>{w.name}</strong> {w.active ? "" : <span className="cap">· {t("inactive")}</span>}<div className="cap"><a href={w.link} target="_blank" rel="noreferrer">{w.id} ↗</a></div></td>
-          <td className="cap">{w.triggers.join(", ") || "—"}{w.webhook_url && <div>{t("Webhook ready")}</div>}</td>
-          <td>{w.automation_id ? <span className="cap">{t("In the hub")}</span> : <button className="btn bg sm" onClick={() => register(w, wf.conn)}>{t("Add to hub")}</button>}</td></tr>)}</tbody></table></div>
-    </section>}
-  </>;
+function EdgeRow({ verb, other, label, onOpen }: { verb: string; other: string; label: Tx; onOpen: (id: string) => void }) {
+  const o = BY_ID[other];
+  return <div className="edge"><div><span className="cap">{verb}</span> <button className="linkbtn" onClick={() => onOpen(other)}>{L(o.name)}</button>
+    {" "}<span className={`pill ${o.platform === "github" ? "pn" : "pb"} pill-sm`}>{PLATFORM[o.platform].name}</span></div>
+    <div className="cap">{L(label)}</div></div>;
+}
+
+// ── the diagram ──
+
+const KIND_LABEL: Record<string, string> = { read: "Reads", write: "Writes", send: "Sends", calc: "Calculates" };
+
+function Diagram({ nodes, onOpen }: { nodes: DNode[]; onOpen: (id: string) => void }) {
+  return <div className="stack">
+    <div className="flow-legend cap">
+      <span><i className="lg start" />{t("Start")}</span><span><i className="lg step" />{t("Step")}</span><span><i className="lg decision" />{t("Decision")}</span>
+      <span><i className="lg link" />{t("Another automation")}</span><span><i className="lg error" />{t("If it fails")}</span><span><i className="lg end" />{t("End")}</span>
+    </div>
+    <div className="flow-wrap"><Flow nodes={nodes} onOpen={onOpen} /></div>
+  </div>;
+}
+
+function Flow({ nodes, onOpen }: { nodes: DNode[]; onOpen: (id: string) => void }) {
+  return <div className="flow">{nodes.map((n, i) => <div key={i} className="flow-item">
+    {i > 0 && <div className="farrow" aria-hidden="true" />}
+    <FNode n={n} onOpen={onOpen} />
+  </div>)}</div>;
+}
+
+function FNode({ n, onOpen }: { n: DNode; onOpen: (id: string) => void }) {
+  if (n.t === "decision") return <div className="fdecision">
+    <div className="fnode decision">{L(n.label)}</div>
+    <div className="fbranches">{n.branches.map((b, i) => <div key={i} className="fbranch">
+      <div className="farrow" aria-hidden="true" />
+      <span className="fblabel">{L(b.label)}</span>
+      <Flow nodes={b.nodes} onOpen={onOpen} />
+    </div>)}</div>
+  </div>;
+  if (n.t === "link") return <button className="fnode link" onClick={() => onOpen(n.to)} title={t("Open its card")}>
+    <span>{L(n.label)}</span><span className="fsub"><IArrow size={14} /> {L(BY_ID[n.to].name)}</span></button>;
+  if (n.t === "step") return <div className="fnode step">{n.kind && <span className="fsub">{t(KIND_LABEL[n.kind])}</span>}{L(n.label)}</div>;
+  return <div className={`fnode ${n.t}`}>{L(n.label)}</div>;
 }

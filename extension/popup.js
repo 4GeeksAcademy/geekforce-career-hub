@@ -42,13 +42,8 @@ async function render() {
   }
 }
 
-$("loginForm").addEventListener("submit", async (e) => {
-  e.preventDefault();
-  $("loginErr").hidden = true;
-  const r = await send({ type: "login", email: $("email").value, password: $("password").value });
-  if (!r.ok) { $("loginErr").textContent = r.error; $("loginErr").hidden = false; return; }
-  render();
-});
+// Sign-in happens on Career Hub (4Geeks account); hub-bridge.js hands the session to the extension.
+$("signIn").addEventListener("click", async () => { chrome.tabs.create({ url: `${await hubUrl()}/login` }); window.close(); });
 
 $("trackPage").addEventListener("click", async () => {
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });

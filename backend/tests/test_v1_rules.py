@@ -114,12 +114,13 @@ def test_first_one_on_one_clears_hold(db, people):
     assert not st.on_hold and st.not_started_level == 0
 
 
-def test_login_does_not_reset_inactivity(client, db, people):
+def test_login_does_not_reset_inactivity(client, db, people, monkeypatch):
     st = people["student"]
     st.job_search_start_date = local_today() - timedelta(days=100)
     st.last_activity_at = now_utc() - timedelta(days=31)
     db.commit()
-    client.post("/api/v1/auth/login", json={"email": "stu@test.io", "password": "secret123"})
+    monkeypatch.setattr("app.routers.auth_routes.httpx.get", lambda *a, **k: httpx.Response(200, json={"id": 7, "email": "stu@test.io"}))
+    assert client.post("/api/v1/auth/breathcode", json={"token": "t"}).status_code == 200
     db.expire_all()
     daily(db)
     assert db.scalar(select(PointsEvent).where(PointsEvent.event_type == "deduction_inactivity")) is not None
@@ -231,16 +232,7 @@ def test_activation_sets_balance_and_invites(client, db, people):
     r = client.post(f"/api/v1/advisor/students/{ana.id}/activate", headers=h, json={"starting_points": 86})
     assert r.status_code == 200, r.text
     link = r.json()["invite_link"]
-    assert "/set-password?token=" in link and r.json()["student"]["points"] == 86
-    token = link.split("token=")[1]
-    assert client.get(f"/api/v1/auth/set-password/check?token={token}").json()["email"] == "ana@test.io"
-    assert client.post("/api/v1/auth/set-password", json={"token": token, "password": "short"}).status_code == 422
-    ok = client.post("/api/v1/auth/set-password", json={"token": token, "password": "a-good-password"})
-    assert ok.status_code == 200 and ok.json()["token"]
-    # single use
-    assert client.post("/api/v1/auth/set-password", json={"token": token, "password": "another-pass"}).status_code == 400
-    login = client.post("/api/v1/auth/login", json={"email": "ana@test.io", "password": "a-good-password"})
-    assert login.status_code == 200
+    assert link.endswith("/login") and r.json()["student"]["points"] == 86  # they sign in with their 4Geeks account
     db.expire_all()
     assert db.get(Student, ana.id).status == "active"
     # after activation, the sync no longer imports applications for her

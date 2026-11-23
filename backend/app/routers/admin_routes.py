@@ -7,7 +7,7 @@ from pydantic import BaseModel, Field, EmailStr
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from ..auth import hash_password, require_admin, require_staff
+from ..auth import require_admin, require_staff
 from ..config import settings
 from ..db import get_db
 from ..i18n import L
@@ -84,9 +84,8 @@ def integrations(user: User = Depends(require_staff), db: Session = Depends(get_
          "detail": f"{analyses} resume analyses this month" if settings.anthropic_api_key else "Add ANTHROPIC_API_KEY for the resume builder"},
         {"key": "extension", "name": "Chrome extension", "connected": True,
          "detail": "Logs applications from LinkedIn, Indeed, Glassdoor and Greenhouse"},
-        {"key": "breathcode", "name": "Breathcode", "connected": settings.breathcode_enabled,
-         "detail": "4Geeks login and attendance sync" if settings.breathcode_enabled else
-                   "Phase 2. Until then advisors mark attendance here."},
+        {"key": "breathcode", "name": "4Geeks (Breathcode)", "connected": True,
+         "detail": "Sign-in for everyone (4Geeks email and password, or GitHub). Attendance sync comes later."},
     ]
 
 
@@ -111,7 +110,6 @@ class UserIn(BaseModel):
     email: EmailStr
     name: str
     role: str = "student"
-    password: str | None = None
     cohort_id: str | None = None
     advisor_id: str | None = None
     country: str | None = None
@@ -128,7 +126,6 @@ class UserPatch(BaseModel):
     advisor_id: str | None = None
     job_search_start_date: date | None = None
     deadline_days: int | None = None
-    password: str | None = None
 
 
 def user_dict(u: User, history: dict | None = None) -> dict:
@@ -179,8 +176,8 @@ def create_user(body: UserIn, user: User = Depends(require_admin), db: Session =
         raise HTTPException(422, "Unknown role")
     if db.scalar(select(User).where(func.lower(User.email) == body.email.lower())):
         raise HTTPException(409, "A user with this email already exists")
-    temp = body.password or secrets.token_urlsafe(9)
-    u = User(email=body.email.lower(), name=body.name, role=body.role, password_hash=hash_password(temp))
+    # No password: they sign in with the 4Geeks account that uses this email.
+    u = User(email=body.email.lower(), name=body.name, role=body.role, password_hash=None)
     db.add(u)
     db.flush()
     if body.role == "student":
@@ -192,7 +189,7 @@ def create_user(body: UserIn, user: User = Depends(require_admin), db: Session =
         db.add(st)
     db.add(AuditLog(actor_id=user.id, action="user_created", detail=f"{body.name} ({body.role})"))
     db.commit()
-    return {**user_dict(u), "temporary_password": None if body.password else temp}
+    return user_dict(u)
 
 
 def _admins_left(db: Session, excluding: str) -> int:
@@ -236,11 +233,6 @@ def update_user(uid: str, body: UserPatch, user: User = Depends(require_admin), 
             raise HTTPException(422, "This is the last admin. Make someone else admin first.")
         changes.append("activated" if data["is_active"] else "deactivated")
         u.is_active = data["is_active"]
-    if "password" in data and data["password"]:
-        if len(data["password"]) < 8:
-            raise HTTPException(422, "Use at least 8 characters")
-        u.password_hash = hash_password(data["password"])
-        changes.append("password reset")
     if u.student:
         for k in ("cohort_id", "advisor_id", "job_search_start_date", "deadline_days"):
             if k in data and getattr(u.student, k) != data[k]:
