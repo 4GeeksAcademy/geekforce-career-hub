@@ -71,7 +71,7 @@ API docs: `http://localhost:8000/api/docs`.
 
 1. New project → **Deploy from GitHub repo** → `4GeeksAcademy/geekforce-career-hub`. Railway uses the `Dockerfile` and `railway.json`.
 2. Add a **PostgreSQL** service, then on the app service set `DATABASE_URL=${{Postgres.DATABASE_URL}}`.
-3. Set the variables from `.env.example`. At minimum: `JWT_SECRET`, `APP_URL`, `ENABLE_SCHEDULER=true`, `INITIAL_ADMIN_EMAIL` (the email of the admin's 4Geeks account). Keep `DEV_PASSWORD_LOGIN` unset. Add `BREVO_API_KEY`, `ANTHROPIC_API_KEY` and `NOTION_TOKEN` when ready.
+3. Set the variables from `.env.example`. At minimum: `JWT_SECRET` (at least 32 random characters, e.g. `python -c "import secrets; print(secrets.token_urlsafe(48))"`; the API refuses to start without it), `APP_URL`, `ENABLE_SCHEDULER=true`, `INITIAL_ADMIN_EMAIL` (the email of the admin's 4Geeks account). Keep `DEV_PASSWORD_LOGIN` unset. Add `BREVO_API_KEY`, `ANTHROPIC_API_KEY` and `NOTION_TOKEN` when ready.
    - Advisor accounts must use the **same names as the Notion "Advisor" options** (e.g. "Valentina Ancieta", "Fabiana Pereira") so synced students get assigned automatically.
 4. Generate a domain. Migrations run on every deploy (`backend/start.sh`).
 

@@ -9,7 +9,7 @@ from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from . import events  # noqa: F401 — registers the outbound-event listener
-from .config import settings
+from .config import check_jwt_secret, settings
 from .db import Base, SessionLocal, engine
 from .routers import (admin_routes, auth_routes, automation_routes, jobs_routes, report_routes, resume_routes,
                       staff_routes, student_routes)
@@ -22,6 +22,7 @@ log = logging.getLogger("geekforce")
 async def lifespan(app: FastAPI):
     from . import models  # noqa: F401 — register tables
     from .seed import ensure_initial_admin, seed_demo
+    check_jwt_secret(settings)  # before anything else: an unsafe secret lets anyone sign an admin token
     if settings.sqlalchemy_url.startswith("sqlite") or settings.seed_demo:
         Base.metadata.create_all(engine)  # Postgres in production uses Alembic migrations (see start.sh)
     with SessionLocal() as db:
