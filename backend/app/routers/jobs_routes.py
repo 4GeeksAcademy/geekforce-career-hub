@@ -20,13 +20,20 @@ from ..timeutil import now_utc
 router = APIRouter(tags=["jobs"])
 
 
-def job_dict(j: Job, fits: int | None = None) -> dict:
-    return {"id": j.id, "source": j.source, "title": j.title, "company": j.company, "location": j.location,
+STAFF_ONLY = ("contact_name", "contact_handle", "outreach_status", "notes")  # company contacts never reach students
+
+
+def job_dict(j: Job, fits: int | None = None, staff: bool = True) -> dict:
+    d = {"id": j.id, "source": j.source, "title": j.title, "company": j.company, "location": j.location,
             "work_mode": j.work_mode, "url": j.url, "program": j.program, "country": j.country, "posted_at": iso(j.posted_at),
             "found_at": iso(j.created_at), "salary_min": j.salary_min, "salary_max": j.salary_max,
             "contact_name": j.contact_name, "contact_handle": j.contact_handle, "outreach_status": j.outreach_status,
             "is_partner": j.is_partner, "notes": j.notes, "active": j.active, "shared_count": j.shared_count,
             "description": (j.description or "")[:600] or None, "fits": fits}
+    if not staff:
+        for k in STAFF_ONLY:
+            d.pop(k, None)
+    return d
 
 
 # ── ingest (grokbot, partners, scripts) ──
@@ -93,14 +100,18 @@ def list_jobs(program: str = "", source: str = "", q: str = "", days: int = 14, 
     jobs = db.scalars(query.order_by(Job.is_partner.desc(), func.coalesce(Job.posted_at, Job.created_at).desc())
                       .limit(300)).all()
     students = db.scalars(select(Student).where(Student.status == "active")).all()
-    by_prog: dict[str | None, int] = {}
+    pool: dict[tuple[str | None, str], int] = {}  # (program, region) → students searching
     for st in students:
         if st.guarantee_status == "suspended" or st.on_hold or st.stage not in (None, "job_hunting", "interview_prep"):
             continue
-        p = JR.student_program(st)
-        by_prog[p] = by_prog.get(p, 0) + 1
-    total = sum(by_prog.values())
-    items = [job_dict(j, by_prog.get(j.program, 0) if j.program else total) for j in jobs]
+        k = (JR.student_program(st), JR.student_region(st))
+        pool[k] = pool.get(k, 0) + 1
+
+    def fits(j: Job) -> int:
+        region = JR.job_region(j.country)
+        return sum(n for (p, r), n in pool.items() if (not j.program or p == j.program) and (not region or r == region))
+
+    items = [job_dict(j, fits(j)) for j in jobs]
     sources = dict(db.execute(select(Job.source, func.count()).where(Job.active.is_(True))
                               .group_by(Job.source)).all())
     countries = {c: n for c, n in db.execute(select(Job.country, func.count()).where(Job.active.is_(True), Job.country.is_not(None))
@@ -291,7 +302,7 @@ def share_dict(r: JobShare, db: Session, events: list[JobShareEvent] | None = No
                             "followup_date": app.followup_date.isoformat() if app.followup_date else None} if app else None,
             "student": {"id": st.id, "name": st.user.name, "cohort": st.cohort.name if st.cohort else None},
             "last_activity": timeline[-1]["at"] if timeline else iso(r.created_at),
-            "job": job_dict(r.job), "timeline": timeline}
+            "job": job_dict(r.job, staff=staff), "timeline": timeline}
 
 
 @router.get("/students/{student_id}/jobs")

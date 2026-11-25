@@ -212,6 +212,7 @@ def test_adzuna_sweep_skips_senior_roles(db, people, monkeypatch):
     monkeypatch.setattr(settings, "adzuna_app_id", "id")
     monkeypatch.setattr(settings, "adzuna_app_key", "key")
     monkeypatch.setattr(JR, "TITLE_SETS", {"data_science": ["junior data analyst"]})
+    monkeypatch.setattr(settings, "adzuna_countries", "us")
 
     def handler(req):
         assert req.url.params["what"] == "junior data analyst" and req.url.params["max_days_old"] == "1"

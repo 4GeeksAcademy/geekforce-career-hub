@@ -26,6 +26,8 @@ class Settings(BaseSettings):
     adzuna_app_id: str = ""
     adzuna_app_key: str = ""
     adzuna_country: str = "us"
+    # Countries the morning sweep searches (Adzuna codes). us uses English titles; es and mx use Spanish ones.
+    adzuna_countries: str = "us,es,mx"
     jobs_ingest_secret: str = ""  # header X-Jobs-Secret for POST /api/v1/integrations/jobs (grokbot)
 
     # Automations: every stage/status change is POSTed here (e.g. an n8n Webhook URL), header X-GeekForce-Secret

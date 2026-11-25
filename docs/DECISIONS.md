@@ -40,6 +40,7 @@ Settled with Marcelo on Oct 4–6, 2026. Every value marked ⚙ is an admin sett
 Built on the same app and data:
 
 - **Job Radar:** daily 10:00 AM sweep of job sources using per-program title sets. It reuses Lali's Adzuna feed and adds the team's filters (US only, Easy Apply, entry level, under 24h old, under 50 applicants).
+- **Job Radar for Spain and LATAM (Nov 2026):** the sweep searches every country in `ADZUNA_COUNTRIES` (default `us,es,mx`; Adzuna has no CO/AR/VE/CL feed). `es` and `mx` use Spanish title sets. Each job keeps its country, and "who fits" only counts students whose cohort region matches (US → usa, ES → spain, any other country → latam; no country → everyone). About 40 Adzuna calls a day, paced under 25 a minute. Company contacts, outreach status and notes stay staff-only: students never receive them.
 - **Graduate–job matching:** match score by program, skills and work mode. "Who fits" per job, with drafts for all who fit.
 - **Talent Pipeline:** profiles of students past Stages 1–2, plus 3–5-person shortlists per partner job (in the style of Ironhack's Fast-track Interviews).
 - **Draft automations a coach approves:** daily job digest as Slack DM drafts (max 2 links), and an interview kit when an application moves to Interviewing.
